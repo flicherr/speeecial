@@ -1,6 +1,6 @@
 # Проверка сборки и отрисовки — 14 ноября 2026
 
-Версия исходников: **speeecial (snow desktop) 1.0.9**.
+Версия исходников: **speeecial (snow desktop) 1.0.10**.
 
 | Проверка | Результат |
 |---|---|
@@ -8,12 +8,21 @@
 | Восстановление неполного списка | 120 циклов с пропусками панели/обычного окна; видимость и профили сохранены |
 | Windows-кросс-сборка приложения, Zig 0.13.0 / Clang, x86_64-windows-gnu | Компиляция и линковка успешны |
 | Windows-кросс-сборка `snow_windows_graphics_tests` | Компиляция и линковка успешны |
-| Конфликт SDK `small → char` | Обе кросс-сборки выполнены с принудительным `-Dsmall=char` |
+| Конфликт SDK `small → char` | Кросс-сборки выполнены с принудительным `-Dsmall=char` |
 | Строгие флаги Windows | `-Wall -Wextra -Wpedantic -Werror`; исключены missing-field-initializers и unknown-pragmas для Win32-структур/заголовков |
+| Windows-кросс-сборка `snow_windows_menu_tests` с пиксельным меню | Компиляция и линковка успешны, включая `-Dsmall=char` и строгие предупреждения |
 | MSVC и исполнение Windows-приложения/графических тестов | Не выполнены: среда Linux |
 | Настоящие панели Explorer, память и FPS | Требуют проверки на Windows |
 
 Проверочные EXE не входят в исходный архив.
+
+## Пиксельное меню
+
+После изменения оформления повторены CMake/CTest на Linux и строгая Windows x64 кросс-сборка приложения и теста меню. Все 37 групп модели пройдены. Нативное исполнение теста меню на Windows не выполнялось.
+
+Содержимое меню рисуется GDI. Ступенчатые регионы и контуры добавлены к собственным popup HWND через thread-local hook на время TrackPopupMenuEx. Сохраняется стандартная обработка команд, подменю и клавиатуры; ресурсы оформителя освобождаются при закрытии. В тесте меню добавлены интерактивное раскрытие дочернего меню, выбор команды с клавиатуры, проверка регионов обоих popup и повторные открытия для проверки USER/GDI.
+
+README содержит утверждённое изображение без спойлера. Приложение не загружает эту картинку при запуске. Фактическое соответствие отрисовки Windows и показанного дизайна, системные стрелки, тени и масштабирование требуют визуальной приёмки по VALIDATION.md.
 
 ## Что подтверждает трассировка
 
@@ -79,3 +88,17 @@ zig c++ -target x86_64-windows-gnu -std=c++20 -O2 -DNDEBUG \
 ```
 
 Сценарии приёмки — в [VALIDATION.md](VALIDATION.md), раздел «Пропуски окон при переходах оболочки — 1.0.9».
+
+
+Кросс-сборка теста меню (тот же набор определений UNICODE, NOMINMAX, WINVER и строгих флагов, что выше):
+
+```bash
+zig c++ -target x86_64-windows-gnu -std=c++20 -O2 -DNDEBUG \
+  -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN -DNOMINMAX \
+  -U_WIN32_WINNT -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -Dsmall=char \
+  -Isrc -Iresources -Wall -Wextra -Wpedantic -Werror \
+  -Wno-missing-field-initializers -Wno-unknown-pragmas \
+  tests/windows_menu_tests.cpp src/tray_menu.cpp build/check/speeecial.res \
+  -luser32 -lgdi32 -ladvapi32 -lshcore -lcomctl32 \
+  -o build/check/snow_windows_menu_tests.exe
+```

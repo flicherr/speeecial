@@ -1,6 +1,8 @@
 #include "tray_menu.hpp"
 #include "win_util.hpp"
 #include <algorithm>
+#include <array>
+#include <commctrl.h>
 #include <cstdlib>
 #include <oleacc.h>
 #include <shellscalingapi.h>
@@ -85,21 +87,21 @@ struct Entry {
 
 struct Palette {
 	COLORREF background, text, muted, accent, hover, active, line, track, thumb,
-		danger;
+		texture;
 };
 
 Palette palette(bool dark) noexcept
 {
 	if (dark) {
-		return {RGB(23, 31, 43),    RGB(231, 239, 247), RGB(152, 173, 195),
-		        RGB(147, 210, 246), RGB(39, 57, 76),    RGB(31, 48, 65),
-		        RGB(49, 66, 84),    RGB(65, 81, 98),    RGB(236, 246, 253),
-		        RGB(255, 167, 171)};
+		return {RGB(23, 23, 28),    RGB(236, 235, 242), RGB(158, 156, 175),
+		        RGB(174, 150, 241), RGB(43, 37, 61),    RGB(31, 29, 43),
+		        RGB(101, 99, 121),  RGB(75, 76, 89),    RGB(237, 235, 249),
+		        RGB(26, 26, 32)};
 	}
-	return {RGB(247, 250, 253), RGB(28, 46, 66),    RGB(94, 116, 138),
-	        RGB(29, 108, 155),  RGB(224, 239, 250), RGB(234, 244, 251),
-	        RGB(216, 228, 238), RGB(184, 201, 215), RGB(255, 255, 255),
-	        RGB(170, 50, 64)};
+	return {RGB(247, 247, 252), RGB(36, 36, 49),    RGB(102, 102, 125),
+	        RGB(132, 99, 215),  RGB(234, 226, 251), RGB(239, 235, 249),
+	        RGB(136, 141, 169), RGB(195, 198, 213), RGB(255, 255, 255),
+	        RGB(243, 244, 249)};
 }
 
 bool native_accessibility() noexcept
@@ -134,6 +136,7 @@ struct TrayMenu::Impl {
 	// Windows SDK RPC headers define small as a macro; use an explicit font
 	// name.
 	Gdi<HFONT> body, title, small_font;
+	Gdi<HBITMAP> texture;
 	Gdi<HBRUSH> background;
 	IconHandle icon;
 	MenuHandle root;
@@ -195,7 +198,40 @@ struct TrayMenu::Impl {
 			std::abs(static_cast<int>(metrics.lfMenuFont.lfHeight)) + px(2));
 		font.lfWeight = FW_SEMIBOLD;
 		title.value = CreateFontIndirectW(&font);
-		background.value = CreateSolidBrush(colors.background);
+		// A tiny cached tile, not a full-size menu bitmap or an animation
+		// timer.
+		BITMAPINFO tile{};
+		tile.bmiHeader = {sizeof(BITMAPINFOHEADER),
+		                  px(8),
+		                  -px(8),
+		                  1,
+		                  32,
+		                  BI_RGB,
+		                  0,
+		                  0,
+		                  0,
+		                  0,
+		                  0};
+		void *pixels = nullptr;
+		texture.value = CreateDIBSection(nullptr, &tile, DIB_RGB_COLORS,
+		                                 &pixels, nullptr, 0);
+		if (texture.value && pixels) {
+			for (int y = 0; y < px(8); ++y) {
+				for (int x = 0; x < px(8); ++x) {
+					const auto c =
+						((x / std::max(1, px(4)) + y / std::max(1, px(4))) & 1)
+							? colors.texture
+							: colors.background;
+					static_cast<DWORD *>(pixels)[y * px(8) + x] =
+						(static_cast<DWORD>(GetRValue(c)) << 16) |
+						(static_cast<DWORD>(GetGValue(c)) << 8) | GetBValue(c);
+				}
+			}
+			background.value = CreatePatternBrush(texture.value);
+		}
+		if (!background.value) {
+			background.value = CreateSolidBrush(colors.background);
+		}
 		check_win(body.value && title.value && small_font.value &&
 		              background.value,
 		          "Create tray menu resources");
@@ -233,6 +269,315 @@ struct TrayMenu::Impl {
 			}
 		}
 		return nullptr;
+	}
+
+	struct Frame {
+		HWND window{};
+		HRGN original{}, outline{};
+		int width{}, height{};
+	};
+
+	std::array<Frame, 32> frames{};
+	inline static thread_local Impl *tracking = nullptr;
+	bool attaching = false;
+
+	bool owns(HMENU menu) const noexcept
+	{
+		return menu == root.value ||
+		       std::any_of(entries.begin(), entries.end(), [&](const auto &e) {
+				   return e->child == menu && menu;
+			   });
+	}
+
+	Frame *frame(HWND window) noexcept
+	{
+		for (auto &f : frames) {
+			if (f.window == window) {
+				return &f;
+			}
+		}
+		return nullptr;
+	}
+
+	void forget(Frame &f, bool restore) noexcept
+	{
+		if (restore && IsWindow(f.window)) {
+			RemoveWindowSubclass(f.window, frame_proc,
+			                     reinterpret_cast<UINT_PTR>(this));
+			if (SetWindowRgn(f.window, f.original, FALSE)) {
+				f.original = nullptr;
+			}
+		}
+		if (f.original) {
+			DeleteObject(f.original);
+		}
+		if (f.outline) {
+			DeleteObject(f.outline);
+		}
+		f = {};
+	}
+
+	void shape(Frame &f) noexcept
+	{
+		RECT r{};
+		if (!GetWindowRect(f.window, &r)) {
+			return;
+		}
+		const int w = r.right - r.left, h = r.bottom - r.top,
+				  q = std::max(1, px(2));
+		if (w == f.width && h == f.height) {
+			return;
+		}
+		if (w < 24 * q || h < 10 * q) {
+			return;
+		}
+		const int a = w / 3 / q * q, b = 2 * w / 3 / q * q;
+		const POINT outline[]{{3 * q, 0},
+		                      {a, 0},
+		                      {a, q},
+		                      {a + 3 * q, q},
+		                      {a + 3 * q, 0},
+		                      {b, 0},
+		                      {b, q},
+		                      {b + 3 * q, q},
+		                      {b + 3 * q, 0},
+		                      {w - 3 * q, 0},
+		                      {w - 3 * q, q},
+		                      {w - q, q},
+		                      {w - q, 3 * q},
+		                      {w, 3 * q},
+		                      {w, h - 3 * q},
+		                      {w - q, h - 3 * q},
+		                      {w - q, h - q},
+		                      {w - 3 * q, h - q},
+		                      {w - 3 * q, h},
+		                      {b + 3 * q, h},
+		                      {b + 3 * q, h - q},
+		                      {b, h - q},
+		                      {b, h},
+		                      {a + 3 * q, h},
+		                      {a + 3 * q, h - q},
+		                      {a, h - q},
+		                      {a, h},
+		                      {3 * q, h},
+		                      {3 * q, h - q},
+		                      {q, h - q},
+		                      {q, h - 3 * q},
+		                      {0, h - 3 * q},
+		                      {0, 3 * q},
+		                      {q, 3 * q},
+		                      {q, q},
+		                      {3 * q, q}};
+		HRGN region = CreatePolygonRgn(
+			outline, static_cast<int>(std::size(outline)), WINDING);
+		HRGN copy = CreateRectRgn(0, 0, 0, 0);
+		if (!region || !copy ||
+		    CombineRgn(copy, region, nullptr, RGN_COPY) == ERROR) {
+			if (region) {
+				DeleteObject(region);
+			}
+			if (copy) {
+				DeleteObject(copy);
+			}
+			return;
+		}
+		// SetWindowRgn sends position messages synchronously. Cache first.
+		f.width = w;
+		f.height = h;
+		if (f.outline) {
+			DeleteObject(f.outline);
+		}
+		f.outline = copy;
+		if (!SetWindowRgn(f.window, region, TRUE)) {
+			DeleteObject(region);
+			DeleteObject(f.outline);
+			f.outline = nullptr;
+			f.width = f.height = 0;
+		}
+	}
+
+	void paint_frame(Frame &f) noexcept
+	{
+		if (!f.outline) {
+			return;
+		}
+		HDC dc = GetWindowDC(f.window);
+		if (!dc) {
+			return;
+		}
+		{
+			SavedDC saved(dc);
+			RECT window{}, client{};
+			GetWindowRect(f.window, &window);
+			GetClientRect(f.window, &client);
+			MapWindowPoints(f.window, nullptr,
+			                reinterpret_cast<POINT *>(&client), 2);
+			OffsetRect(&client, -window.left, -window.top);
+			const RECT bounds{0, 0, f.width, f.height};
+			const int clip = SaveDC(dc);
+			ExcludeClipRect(dc, client.left, client.top, client.right,
+			                client.bottom);
+			FillRect(dc, &bounds, background.value);
+			if (clip) {
+				RestoreDC(dc, clip);
+			}
+			SetDCBrushColor(dc, colors.line);
+			FrameRgn(dc, f.outline,
+			         static_cast<HBRUSH>(GetStockObject(DC_BRUSH)),
+			         std::max(1, px(1)), std::max(1, px(1)));
+			// USER32 may paint native arrows with a different theme. Repaint
+			// only their reserved gutter; retain native submenu hit
+			// testing/navigation.
+			MENUBARINFO menu{sizeof(menu)};
+			if (GetMenuBarInfo(f.window, OBJID_CLIENT, 0, &menu) &&
+			    owns(menu.hMenu)) {
+				for (int i = 0; i < GetMenuItemCount(menu.hMenu); ++i) {
+					MENUITEMINFOW info{sizeof(info)};
+					info.fMask = MIIM_SUBMENU | MIIM_STATE;
+					RECT row{};
+					if (!GetMenuItemInfoW(menu.hMenu, static_cast<UINT>(i),
+					                      TRUE, &info) ||
+					    !info.hSubMenu ||
+					    !GetMenuItemRect(nullptr, menu.hMenu,
+					                     static_cast<UINT>(i), &row)) {
+						continue;
+					}
+					OffsetRect(&row, -window.left, -window.top);
+					if (row.top < client.top || row.bottom > client.bottom) {
+						continue; // Leave USER32's scrolling arrows
+						          // unobstructed.
+					}
+					const int cy = (row.top + row.bottom) / 2,
+							  x = row.right - px(14);
+					RECT gutter{x - px(1), cy - px(6), row.right - px(5),
+					            cy + px(7)};
+					SetDCBrushColor(dc, colors.hover);
+					FillRect(dc, &gutter,
+					         (info.fState & MFS_HILITE)
+					             ? static_cast<HBRUSH>(GetStockObject(DC_BRUSH))
+					             : background.value);
+					SetDCBrushColor(dc, (info.fState & MFS_HILITE)
+					                        ? colors.accent
+					                        : colors.muted);
+					for (int n = 0; n < 4; ++n) {
+						RECT upper{x + px(n), cy - px(3 - n), x + px(n + 1),
+						           cy - px(2 - n)};
+						RECT lower{x + px(n), cy + px(3 - n), x + px(n + 1),
+						           cy + px(4 - n)};
+						FillRect(dc, &upper,
+						         static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+						FillRect(dc, &lower,
+						         static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+					}
+				}
+			}
+		}
+		ReleaseDC(f.window, dc);
+	}
+
+	static LRESULT CALLBACK frame_proc(HWND window, UINT message, WPARAM wp,
+	                                   LPARAM lp, UINT_PTR id,
+	                                   DWORD_PTR data) noexcept
+	{
+		auto &self = *reinterpret_cast<Impl *>(data);
+		if (message == WM_NCDESTROY) {
+			RemoveWindowSubclass(window, frame_proc, id);
+			if (auto *f = self.frame(window)) {
+				self.forget(*f, false);
+			}
+			return DefSubclassProc(window, message, wp, lp);
+		}
+		const auto result = DefSubclassProc(window, message, wp, lp);
+		if (auto *f = self.frame(window)) {
+			if (message == WM_WINDOWPOSCHANGED || message == WM_SHOWWINDOW ||
+			    message == WM_PAINT || message == WM_NCPAINT ||
+			    message == WM_MOUSEMOVE || message == WM_KEYDOWN) {
+				self.shape(*f);
+				self.paint_frame(*f);
+			}
+		}
+		return result;
+	}
+
+	static LRESULT CALLBACK menu_hook(int code, WPARAM wp, LPARAM lp) noexcept
+	{
+		auto *self = tracking;
+		if (code >= 0 && self && !self->attaching) {
+			const auto &msg = *reinterpret_cast<const CWPSTRUCT *>(lp);
+			if ((msg.message == WM_WINDOWPOSCHANGED ||
+			     msg.message == WM_WINDOWPOSCHANGING ||
+			     msg.message == WM_SHOWWINDOW || msg.message == WM_PAINT) &&
+			    !self->frame(msg.hwnd)) {
+				// Only our own HMENU tree, on the calling thread. Never style
+				// Explorer.
+				wchar_t name[32]{};
+				GetClassNameW(msg.hwnd, name, 32);
+				if (std::wcscmp(name, L"#32768") == 0) {
+					self->attaching = true;
+					MENUBARINFO menu{sizeof(menu)};
+					if (GetMenuBarInfo(msg.hwnd, OBJID_CLIENT, 0, &menu) &&
+					    self->owns(menu.hMenu)) {
+						for (auto &f : self->frames) {
+							if (f.window) {
+								continue;
+							}
+							HRGN original = CreateRectRgn(0, 0, 0, 0);
+							if (!original) {
+								break;
+							}
+							if (GetWindowRgn(msg.hwnd, original) == ERROR) {
+								DeleteObject(original);
+								original = nullptr;
+							}
+							if (SetWindowSubclass(
+									msg.hwnd, frame_proc,
+									reinterpret_cast<UINT_PTR>(self),
+									reinterpret_cast<DWORD_PTR>(self))) {
+								f.window = msg.hwnd;
+								f.original = original;
+							} else if (original) {
+								DeleteObject(original);
+							}
+							break;
+						}
+					}
+					self->attaching = false;
+				}
+			}
+		}
+		return CallNextHookEx(nullptr, code, wp, lp);
+	}
+
+	UINT track(UINT flags, POINT anchor, HWND owner)
+	{
+		if (!custom || tracking) {
+			return static_cast<UINT>(TrackPopupMenuEx(
+				root.value, flags, anchor.x, anchor.y, owner, nullptr));
+		}
+
+		struct Session {
+			Impl &self;
+			HHOOK hook{};
+
+			~Session()
+			{
+				if (hook) {
+					UnhookWindowsHookEx(hook);
+				}
+				tracking = nullptr;
+				for (auto &f : self.frames) {
+					if (f.window) {
+						self.forget(f, true);
+					}
+				}
+			}
+		} session{*this};
+
+		tracking = this;
+		session.hook = SetWindowsHookExW(WH_CALLWNDPROC, menu_hook, nullptr,
+		                                 GetCurrentThreadId());
+		return static_cast<UINT>(TrackPopupMenuEx(root.value, flags, anchor.x,
+		                                          anchor.y, owner, nullptr));
 	}
 
 	void append(HMENU menu, UINT id, std::wstring label, Role role,
@@ -326,11 +671,33 @@ struct TrayMenu::Impl {
 	void glyph(HDC dc, MenuGlyph kind, int x, int y) const noexcept
 	{
 		auto line = [&](int x1, int y1, int x2, int y2) {
-			MoveToEx(dc, x + px(x1), y + px(y1), nullptr);
-			LineTo(dc, x + px(x2), y + px(y2));
+			const int dx = std::abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
+			const int dy = -std::abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
+			int error = dx + dy;
+			for (;;) {
+				RECT dot{x + px(x1), y + px(y1), x + px(x1 + 1),
+				         y + px(y1 + 1)};
+				FillRect(dc, &dot,
+				         static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+				if (x1 == x2 && y1 == y2) {
+					break;
+				}
+				const int twice = 2 * error;
+				if (twice >= dy) {
+					error += dy;
+					x1 += sx;
+				}
+				if (twice <= dx) {
+					error += dx;
+					y1 += sy;
+				}
+			}
 		};
 		auto box = [&](int x1, int y1, int x2, int y2) {
-			Rectangle(dc, x + px(x1), y + px(y1), x + px(x2), y + px(y2));
+			line(x1, y1, x2, y1);
+			line(x2, y1, x2, y2);
+			line(x2, y2, x1, y2);
+			line(x1, y2, x1, y1);
 		};
 		switch (kind) {
 		case MenuGlyph::snow:
@@ -372,7 +739,7 @@ struct TrayMenu::Impl {
 		case MenuGlyph::capture:
 			box(1, 4, 16, 14);
 			box(5, 2, 11, 4);
-			Ellipse(dc, x + px(6), y + px(7), x + px(11), y + px(12));
+			box(6, 7, 11, 12);
 			break;
 		case MenuGlyph::startup:
 			line(3, 13, 13, 3);
@@ -416,8 +783,12 @@ struct TrayMenu::Impl {
 			line(6, 10, 11, 10);
 			break;
 		case MenuGlyph::refresh:
-			Arc(dc, x + px(2), y + px(2), x + px(15), y + px(15), x + px(15),
-			    y + px(8), x + px(8), y + px(1));
+			line(12, 3, 5, 3);
+			line(5, 3, 2, 6);
+			line(2, 6, 2, 12);
+			line(2, 12, 5, 15);
+			line(5, 15, 12, 15);
+			line(12, 15, 15, 12);
 			line(14, 1, 14, 6);
 			line(9, 6, 14, 6);
 			break;
@@ -442,6 +813,11 @@ HMENU TrayMenu::handle() const noexcept
 bool TrayMenu::styled() const noexcept
 {
 	return impl_->custom;
+}
+
+UINT TrayMenu::track(UINT flags, POINT anchor, HWND owner)
+{
+	return impl_->track(flags, anchor, owner);
 }
 
 void TrayMenu::header(const std::wstring &version)
@@ -519,16 +895,32 @@ bool TrayMenu::draw(const DRAWITEMSTRUCT &item) const noexcept
 	RECT r = item.rcItem;
 	const int cy = (r.top + r.bottom) / 2;
 	if (e->role == Role::separator) {
-		RECT rule{r.left + px(12), cy, r.right - px(12),
-		          cy + std::max(1, px(1))};
 		SetDCBrushColor(dc, c.line);
-		FillRect(dc, &rule, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		for (int x = r.left + px(12); x < r.right - px(12); x += px(5)) {
+			RECT dot{x, cy, x + std::max(1, px(1)), cy + std::max(1, px(1))};
+			FillRect(dc, &dot, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		}
 		return true;
 	}
 	if (hot || (active && e->mark != MenuMark::toggle)) {
 		SetDCBrushColor(dc, hot ? c.hover : c.active);
-		RoundRect(dc, r.left + px(3), r.top + px(1), r.right - px(3),
-		          r.bottom - px(1), px(6), px(6));
+		const int l = r.left + px(4), t = r.top + px(2), rr = r.right - px(4),
+				  b = r.bottom - px(2), q = px(2);
+		const POINT outline[]{{l + q, t},  {rr - q, t}, {rr - q, t + q},
+		                      {rr, t + q}, {rr, b - q}, {rr - q, b - q},
+		                      {rr - q, b}, {l + q, b},  {l + q, b - q},
+		                      {l, b - q},  {l, t + q},  {l + q, t + q}};
+		Gdi<HRGN> region;
+		region.value = CreatePolygonRgn(
+			outline, static_cast<int>(std::size(outline)), WINDING);
+		if (region.value) {
+			FillRgn(dc, region.value,
+			        static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+			SetDCBrushColor(dc, hot ? c.accent : c.line);
+			FrameRgn(dc, region.value,
+			         static_cast<HBRUSH>(GetStockObject(DC_BRUSH)),
+			         std::max(1, px(1)), std::max(1, px(1)));
+		}
 	}
 	if (e->role == Role::header) {
 		if (s.icon.value) {
@@ -542,9 +934,21 @@ bool TrayMenu::draw(const DRAWITEMSTRUCT &item) const noexcept
 		          DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
 		SelectObject(dc, s.small_font.value);
 		SetTextColor(dc, c.muted);
-		text = {r.right - px(64), r.top, r.right - px(12), r.bottom};
+		SIZE name_size{};
+		SelectObject(dc, s.title.value);
+		GetTextExtentPoint32W(dc, e->label.c_str(),
+		                      static_cast<int>(e->label.size()), &name_size);
+		SelectObject(dc, s.small_font.value);
+		text = {r.left + px(48) + name_size.cx, r.top, r.right - px(12),
+		        r.bottom};
 		DrawTextW(dc, e->value.c_str(), -1, &text,
-		          DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX);
+		          DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+		SetDCBrushColor(dc, c.line);
+		for (int x = r.left + px(12); x < r.right - px(12); x += px(5)) {
+			RECT dot{x, r.bottom - px(2), x + std::max(1, px(1)),
+			         r.bottom - px(1)};
+			FillRect(dc, &dot, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		}
 		return true;
 	}
 	if (e->role == Role::section) {
@@ -556,33 +960,40 @@ bool TrayMenu::draw(const DRAWITEMSTRUCT &item) const noexcept
 		return true;
 	}
 	const bool disabled = (item.itemState & (ODS_DISABLED | ODS_GRAYED)) != 0;
-	const auto ink = disabled ? c.muted
-	                 : e->glyph == MenuGlyph::exit
-	                     ? c.danger
-	                     : (active ? c.accent : c.text);
+	const auto ink = disabled ? c.muted : (active ? c.accent : c.text);
 	Gdi<HPEN> pen;
 	pen.value = CreatePen(PS_SOLID, std::max(1, px(1)), ink);
 	SelectObject(dc, pen.value ? pen.value : GetStockObject(DC_PEN));
 	SetDCPenColor(dc, ink);
 	SelectObject(dc, GetStockObject(NULL_BRUSH));
+	SetDCBrushColor(dc, ink);
 	s.glyph(dc, e->glyph, r.left + px(12), cy - px(8));
 	if (e->mark == MenuMark::radio) {
 		SelectObject(dc, GetStockObject(DC_BRUSH));
 		SelectObject(dc, GetStockObject(NULL_PEN));
 		SetDCBrushColor(dc, active ? c.accent : c.track);
 		const int size = px(active ? 7 : 4);
-		Ellipse(dc, r.left + px(20) - size / 2, cy - size / 2,
-		        r.left + px(20) + (size + 1) / 2, cy + (size + 1) / 2);
+		RECT mark{r.left + px(20) - size / 2, cy - size / 2,
+		          r.left + px(20) + (size + 1) / 2, cy + (size + 1) / 2};
+		FillRect(dc, &mark, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
 	}
 	if (e->mark == MenuMark::toggle) {
 		SelectObject(dc, GetStockObject(DC_BRUSH));
 		SelectObject(dc, GetStockObject(NULL_PEN));
-		const int x = r.right - px(36), w = px(24), h = px(13);
-		SetDCBrushColor(dc, active ? c.accent : c.track);
-		RoundRect(dc, x, cy - h / 2, x + w, cy + (h + 1) / 2, h, h);
-		SetDCBrushColor(dc, active ? c.background : c.thumb);
-		const int cx = x + px(active ? 18 : 6), radius = px(4);
-		Ellipse(dc, cx - radius, cy - radius, cx + radius, cy + radius);
+		const int x = r.right - px(36);
+		// Position AND colour encode the state; off must not look like on.
+		for (int cell = 0; cell < 5; ++cell) {
+			RECT block{x + px(cell * 5), cy - px(3), x + px(cell * 5 + 4),
+			           cy + px(4)};
+			SetDCBrushColor(dc, active ? c.accent : c.track);
+			FillRect(dc, &block, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		}
+		const int thumb_x = x + px(active ? 19 : -1);
+		RECT thumb{thumb_x, cy - px(5), thumb_x + px(10), cy + px(6)};
+		SetDCBrushColor(dc, c.thumb);
+		FillRect(dc, &thumb, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		SetDCBrushColor(dc, active ? c.accent : c.muted);
+		FrameRect(dc, &thumb, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
 	}
 	SelectObject(dc, s.body.value);
 	SetTextColor(dc, ink);

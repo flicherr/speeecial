@@ -5,8 +5,8 @@
 1 RT_MANIFEST "snowdesk.manifest"
 
 1 VERSIONINFO
- FILEVERSION 1,0,9,0
- PRODUCTVERSION 1,0,9,0
+ FILEVERSION 1,0,10,0
+ PRODUCTVERSION 1,0,10,0
  FILEOS VOS_NT_WINDOWS32
  FILETYPE VFT_APP
 BEGIN
@@ -15,9 +15,9 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "FileDescription", "speeecial (snow desktop)\0"
-            VALUE "FileVersion", "1.0.9\0"
+            VALUE "FileVersion", "1.0.10\0"
             VALUE "ProductName", "speeecial (snow desktop)\0"
-            VALUE "ProductVersion", "1.0.9\0"
+            VALUE "ProductVersion", "1.0.10\0"
             VALUE "OriginalFilename", "speeecial.exe\0"
         END
     END

@@ -39,6 +39,7 @@ class TrayMenu {
 	TrayMenu &operator=(const TrayMenu &) = delete;
 	HMENU handle() const noexcept;
 	bool styled() const noexcept;
+	UINT track(UINT flags, POINT anchor, HWND owner);
 	void header(const std::wstring &version);
 	void section(HMENU menu, const std::wstring &label);
 	void separator(HMENU menu);

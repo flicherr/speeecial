@@ -109,7 +109,7 @@ int App::run()
 		check_win(FALSE, "Create policy timer");
 	}
 	measurement_start_ = std::chrono::steady_clock::now();
-	store_.log("speeecial (snow desktop) 1.0.9 started");
+	store_.log("speeecial (snow desktop) 1.0.10 started");
 	// If already enabled, follow this executable after an upgrade/move.
 	try {
 		if (SettingsStore::autostart()) {
@@ -371,7 +371,7 @@ void App::show_menu()
 	{
 		TrayMenu menu(instance_, point);
 		const auto root = menu.handle();
-		menu.header(L"1.0.9");
+		menu.header(L"1.0.10");
 		menu_detail_ = renderer_ ? std::to_wstring(renderer_->particle_count()) + L" частиц · лимит " +
 		                               std::to_wstring(settings_.fps) + L" FPS"
 		                         : L"Графика недоступна — подробности в журнале";
@@ -459,9 +459,8 @@ void App::show_menu()
 		} menu_scope{*this};
 
 		SetTimer(window_, timer_menu_tip, 50, nullptr);
-		selected = static_cast<UINT>(
-		    TrackPopupMenuEx(root, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_RIGHTALIGN | TPM_BOTTOMALIGN,
-			                 point.x, point.y, window_, nullptr));
+		selected = menu.track(TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_RIGHTALIGN | TPM_BOTTOMALIGN, point,
+		                      window_);
 	}
 	// Release menu resources before executing commands such as graphics rebuild.
 	PostMessageW(window_, WM_NULL, 0, 0);
@@ -665,7 +664,7 @@ void App::diagnostics()
 	    GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&memory), sizeof(memory)),
 	    "Read memory counters");
 	std::ostringstream out;
-	out << "speeecial (snow desktop) 1.0.9\n";
+	out << "speeecial (snow desktop) 1.0.10\n";
 	out << "Graphics scene builds: " << graphics_rebuilds_ << "\nLast frame CPU wall time (ms): " << last_frame_work_ms_
 	    << "\nPeak frame CPU wall time (ms): " << peak_frame_work_ms_
 	    << "\nPeak frame interval (ms): " << peak_frame_interval_ms_ << "\nLate frame intervals: " << late_frames_

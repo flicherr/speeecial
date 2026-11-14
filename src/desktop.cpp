@@ -14,7 +14,6 @@
 #include <shobjidl.h>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace snow
 {
@@ -22,6 +21,75 @@ Rect screen_rect(RECT r) noexcept
 {
 	return {static_cast<float>(r.left), static_cast<float>(r.top),
 	        static_cast<float>(r.right), static_cast<float>(r.bottom)};
+}
+
+std::vector<WindowOrder> enumerate_window_order(std::span<const HWND> required)
+{
+	constexpr std::size_t limit = 8192;
+	std::vector<WindowOrder> order;
+	// The callback cannot allocate or throw through the Win32 boundary.
+	order.reserve(limit);
+	const auto callback = [](HWND window, LPARAM parameter) -> BOOL {
+		auto &items = *reinterpret_cast<std::vector<WindowOrder> *>(parameter);
+		if (items.size() == items.capacity()) {
+			return FALSE;
+		}
+		items.push_back(
+			{reinterpret_cast<std::uintptr_t>(window),
+		     (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0});
+		return TRUE;
+	};
+	EnumWindows(callback, reinterpret_cast<LPARAM>(&order));
+	const auto add = [&](HWND window) {
+		const auto handle = reinterpret_cast<std::uintptr_t>(window);
+		if (!window ||
+		    std::any_of(order.begin(), order.end(),
+		                [&](auto entry) { return entry.window == handle; }) ||
+		    !IsWindow(window)) {
+			return;
+		}
+		const bool topmost =
+			(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+		const auto neighbour = [&](UINT direction) -> std::uintptr_t {
+			HWND current = window;
+			// A whole run can be absent. Find an observed neighbour, not just
+			// an adjacent missing HWND; otherwise recovery would depend on map
+			// order.
+			for (unsigned n = 0; n < 256; ++n) {
+				current = GetWindow(current, direction);
+				if (!current || current == window) {
+					break;
+				}
+				const auto id = reinterpret_cast<std::uintptr_t>(current);
+				if (std::any_of(order.begin(), order.end(), [&](auto entry) {
+						return entry.window == id && entry.topmost == topmost;
+					})) {
+					return id;
+				}
+			}
+			return 0;
+		};
+		const auto next = neighbour(GW_HWNDNEXT);
+		recover_window(order, {handle, topmost},
+		               next ? 0 : neighbour(GW_HWNDPREV), next);
+	};
+	for (HWND window : required) {
+		add(window);
+	}
+	// Shell windows can move between bands when Start/Quick Settings activate.
+	// They are not necessarily reachable from GetTopWindow(nullptr).
+	add(FindWindowW(L"Shell_TrayWnd", nullptr));
+	HWND secondary = nullptr;
+	for (unsigned n = 0; n < 32; ++n) {
+		secondary = FindWindowExW(nullptr, secondary, L"Shell_SecondaryTrayWnd",
+		                          nullptr);
+		if (!secondary) {
+			break;
+		}
+		add(secondary);
+	}
+	add(GetForegroundWindow());
+	return order;
 }
 
 std::vector<Display> enumerate_displays()
@@ -168,7 +236,7 @@ std::optional<Rect> foreground_fullscreen_bounds() noexcept
 	GetClassNameW(window, name, 128);
 	const auto style = GetWindowLongPtrW(window, GWL_STYLE),
 			   ex = GetWindowLongPtrW(window, GWL_EXSTYLE);
-	if (background(name) || taskbar(name) ||
+	if (background(name) || taskbar(name) || is_shell_focus_proxy(name) ||
 	    native_popup(window, name, style, ex) ||
 	    (ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE))) {
 		return {};
@@ -200,7 +268,7 @@ std::optional<Rect> foreground_fullscreen_fast(HWND window) noexcept
 	}
 	wchar_t name[128]{};
 	GetClassNameW(window, name, 128);
-	if (background(name) || taskbar(name)) {
+	if (background(name) || taskbar(name) || is_shell_focus_proxy(name)) {
 		return {};
 	}
 	const auto style = GetWindowLongPtrW(window, GWL_STYLE),
@@ -593,17 +661,20 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 			++it;
 		}
 	}
-	// Obtain explicit front-to-back order. Bound the traversal and detect
-	// handle cycles because foreign windows can be destroyed while querying
-	// them.
-	std::unordered_set<HWND> visited;
-	visited.reserve(256);
+	// Collect handles before DWM/COM queries. A live GW_HWNDNEXT walk can omit
+	// shell bands or lose its tail when a flyout changes the window order.
+	std::vector<HWND> required;
+	required.reserve(impl_->records.size() + impl_->popups.size());
+	for (const auto &[window, record] : impl_->records) {
+		(void)record;
+		required.push_back(window);
+	}
+	required.insert(required.end(), impl_->popups.begin(), impl_->popups.end());
+	const auto order = enumerate_window_order(required);
 	int rank = 0;
-	for (HWND window = GetTopWindow(nullptr); window && rank < 8192;
-	     window = GetWindow(window, GW_HWNDNEXT), ++rank) {
-		if (!visited.insert(window).second) {
-			break;
-		}
+	for (const auto &entry : order) {
+		const HWND window = reinterpret_cast<HWND>(entry.window);
+		++rank;
 		DWORD pid = 0;
 		GetWindowThreadProcessId(window, &pid);
 		if (!pid) {
@@ -621,7 +692,9 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 			}
 			continue;
 		}
-		if (background(name)) {
+		// A focus proxy has no painted body. Do not make it a blocker, snow
+		// support, or popup anchor just because User32 reports it as visible.
+		if (background(name) || is_shell_focus_proxy(name)) {
 			continue;
 		}
 		const auto style = GetWindowLongPtrW(window, GWL_STYLE),
@@ -786,12 +859,12 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 			}
 		}
 	}
-	// Known hidden windows keep their profile and last good bounds. If a handle
-	// disappeared mid-enumeration, the next reconciliation closes it safely.
+	// Known handles were queried directly even if enumeration omitted them.
+	// A failed/missing enumeration entry is not evidence of hidden content.
+	// Destruction and handle reuse are reconciled at the start of the next
+	// scan.
 	for (auto &[window, r] : impl_->records) {
-		if (!visited.contains(window)) {
-			r.surface.state = SurfaceState::suspended;
-		}
+		(void)window;
 		result.surfaces.push_back(r.surface);
 	}
 	impl_->blockers = result.blockers;

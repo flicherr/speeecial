@@ -1,5 +1,6 @@
 #include "renderer.hpp"
 #include "win_util.hpp"
+#include "window_policy.hpp"
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -40,6 +41,67 @@ bool above(HWND upper, HWND lower)
 		}
 	}
 	return false;
+}
+
+void window_inventory_membership()
+{
+	struct Windows
+	{
+		HWND normal{}, topmost{};
+
+		~Windows()
+		{
+			if (topmost) {
+				DestroyWindow(topmost);
+			}
+			if (normal) {
+				DestroyWindow(normal);
+			}
+		}
+	} windows;
+
+	constexpr DWORD common = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+	windows.normal = CreateWindowExW(common, L"STATIC", L"Inventory test", WS_POPUP, 40, 40, 180, 80, nullptr, nullptr,
+	                                 GetModuleHandleW(nullptr), nullptr);
+	windows.topmost = CreateWindowExW(common | WS_EX_TOPMOST, L"STATIC", L"Inventory test topmost", WS_POPUP, 40, 40,
+	                                  180, 80, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+	check_win(windows.normal && windows.topmost, "Create inventory test windows");
+	ShowWindow(windows.normal, SW_SHOWNOACTIVATE);
+	ShowWindow(windows.topmost, SW_SHOWNOACTIVATE);
+	const HWND foreground = GetForegroundWindow();
+	const auto normal_style = GetWindowLongPtrW(windows.normal, GWL_EXSTYLE);
+	const auto top_style = GetWindowLongPtrW(windows.topmost, GWL_EXSTYLE);
+	for (int i = 0; i < 32; ++i) {
+		ShowWindow(windows.topmost, i % 2 ? SW_HIDE : SW_SHOWNOACTIVATE);
+		const HWND required[]{windows.topmost, windows.normal, windows.topmost, nullptr};
+		const auto order = enumerate_window_order(required);
+		for (HWND window : {windows.normal, windows.topmost}) {
+			if (std::count_if(order.begin(), order.end(), [&](auto entry) {
+				    return entry.window == reinterpret_cast<std::uintptr_t>(window);
+			    }) != 1) {
+				throw std::runtime_error("Live HWND membership must be unique and independent of visibility");
+			}
+		}
+		const auto normal = std::find_if(order.begin(), order.end(), [&](auto entry) {
+			return entry.window == reinterpret_cast<std::uintptr_t>(windows.normal);
+		});
+		const auto topmost = std::find_if(order.begin(), order.end(), [&](auto entry) {
+			return entry.window == reinterpret_cast<std::uintptr_t>(windows.topmost);
+		});
+		if (topmost >= normal || !topmost->topmost || normal->topmost ||
+		    GetWindowLongPtrW(windows.normal, GWL_EXSTYLE) != normal_style ||
+		    GetWindowLongPtrW(windows.topmost, GWL_EXSTYLE) != top_style || GetForegroundWindow() != foreground) {
+			throw std::runtime_error("Inventory changed foreground, styles, or topmost ordering");
+		}
+	}
+	const HWND destroyed = windows.topmost;
+	check_win(DestroyWindow(destroyed), "Destroy inventory test window");
+	windows.topmost = nullptr;
+	const auto order = enumerate_window_order(std::span<const HWND>(&destroyed, 1));
+	if (std::any_of(order.begin(), order.end(),
+	                [&](auto entry) { return entry.window == reinterpret_cast<std::uintptr_t>(destroyed); })) {
+		throw std::runtime_error("Reconciliation resurrected a destroyed HWND");
+	}
 }
 
 void popup_order(Renderer &renderer)
@@ -393,6 +455,53 @@ void fullscreen_transition(const Display &display)
 			throw std::runtime_error("Foreground transitions changed the saved profile");
 		}
 	}
+	for (const auto name : {L"ForegroundStaging", L"ControlCenterWindow"}) {
+		WNDCLASSEXW cls{sizeof(cls)};
+		cls.hInstance = instance;
+		cls.lpfnWndProc = DefWindowProcW;
+		cls.lpszClassName = name;
+		check_win(RegisterClassExW(&cls) != 0, "Register shell focus regression class");
+
+		struct ShellWindow
+		{
+			HINSTANCE instance;
+			const wchar_t *name;
+			HWND window{};
+
+			~ShellWindow()
+			{
+				if (window) {
+					DestroyWindow(window);
+				}
+				UnregisterClassW(name, instance);
+			}
+		} shell{instance, name};
+
+		shell.window = CreateWindowExW(WS_EX_APPWINDOW, name, L"Synthetic shell focus host", WS_POPUP, b.left, b.top,
+		                               b.right - b.left, b.bottom - b.top, nullptr, nullptr, instance, nullptr);
+		check_win(shell.window != nullptr, "Create shell focus host");
+		ShowWindow(shell.window, SW_SHOWNOACTIVATE);
+		if (foreground_fullscreen_fast(shell.window)) {
+			throw std::runtime_error("Screen-sized shell host was mistaken for a fullscreen application");
+		}
+		check_win(SetForegroundWindow(game), "Start fullscreen transition before shell activation");
+		renderer.refresh_foreground(true);
+		check_win(SetForegroundWindow(shell.window), "Leave focus on shell host instead of an application");
+		renderer.refresh_foreground(true);
+		auto shell_snapshot = stale;
+		if (is_native_popup({name, true, false, false, false, false, true})) {
+			shell_snapshot.popups = {shell.window};
+		}
+		for (int sample = 0; sample < 10; ++sample) {
+			world.synchronize(shell_snapshot.surfaces, shell_snapshot.blockers, settings, 0.1f, false);
+			renderer.synchronize_desktop(shell_snapshot);
+			if (!world.find(bar.id)->enabled(settings) || world.find(bar.id)->foreground_pending ||
+			    world.find(bar.id)->snow.revision() != revision || GetForegroundWindow() != shell.window) {
+				throw std::runtime_error("Shell focus latched bank hiding, changed snow, or stole activation");
+			}
+		}
+		check_win(SetForegroundWindow(app), "Finish shell focus regression");
+	}
 }
 
 void run_series(bool reuse_device, const std::vector<Display> &displays, Landscape &landscape)
@@ -445,6 +554,7 @@ int main()
 		check_win(SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2),
 		          "Enable test DPI awareness");
 		ComApartment apartment;
+		window_inventory_membership();
 		const auto displays = enumerate_displays();
 		fullscreen_transition(displays.front());
 		Landscape landscape;
@@ -463,7 +573,8 @@ int main()
 		}
 		run_series(true, displays, landscape);
 		run_series(false, displays, landscape);
-		std::cout << "PASS foreground visibility, popup ordering, scene/device rebuild memory and USER/GDI budgets\n";
+		std::cout << "PASS window inventory, foreground visibility, popup ordering, scene/device rebuild memory and "
+		             "USER/GDI budgets\n";
 		return 0;
 	} catch (const std::exception &e) {
 		std::cerr << "FAIL " << e.what() << '\n';

@@ -599,9 +599,13 @@ struct Renderer::Impl {
 		// order. Tooltip HWNDs are reused/reordered between icons. Only cheap
 		// User32 queries run here; DWM/COM and the full desktop scan stay on
 		// the worker.
-		unsigned visited = 0;
-		for (HWND w = GetTopWindow(nullptr); w && remaining && visited < 512;
-		     w = GetWindow(w, GW_HWNDNEXT), ++visited) {
+		const auto order = enumerate_window_order(
+			std::span<const HWND>(pending.data(), remaining));
+		for (const auto &entry : order) {
+			if (!remaining) {
+				break;
+			}
+			const HWND w = reinterpret_cast<HWND>(entry.window);
 			if (auto found = std::find(pending.begin(), pending.end(), w);
 			    found != pending.end()) {
 				*found = nullptr;
@@ -625,7 +629,8 @@ struct Renderer::Impl {
 			DWORD pid = 0;
 			GetWindowThreadProcessId(w, &pid);
 			if ((pid == GetCurrentProcessId() && class_name == overlay_class) ||
-			    class_name == L"Progman" || class_name == L"WorkerW") {
+			    class_name == L"Progman" || class_name == L"WorkerW" ||
+			    is_shell_focus_proxy(class_name)) {
 				continue;
 			}
 			const auto style = GetWindowLongPtrW(w, GWL_STYLE),
@@ -681,11 +686,6 @@ struct Renderer::Impl {
 					})) {
 				break;
 			}
-		}
-		// A changing/malformed Z chain must never lead to a speculative
-		// demotion.
-		if (visited == 512) {
-			popup_stack.clear();
 		}
 	}
 

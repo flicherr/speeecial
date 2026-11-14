@@ -13,6 +13,13 @@ struct WindowTraits {
 	bool tool = false, no_activate = false, app_window = false, owned = false;
 };
 
+inline bool is_shell_focus_proxy(std::wstring_view name) noexcept
+{
+	// Explorer can leave focus here after a flyout is dismissed with the mouse.
+	// Its monitor-sized HWND is an activation helper, not visible app content.
+	return name == L"ForegroundStaging";
+}
+
 inline bool is_native_popup(const WindowTraits &w) noexcept
 {
 	const auto n = w.class_name;
@@ -22,6 +29,7 @@ inline bool is_native_popup(const WindowTraits &w) noexcept
 	    n == L"XamlExplorerHostIslandWindow" || n == L"TaskListThumbnailWnd" ||
 	    n == L"MultitaskingViewFrame" ||
 	    n == L"XamlExplorerHostIslandWindow_Win32" ||
+	    n == L"ControlCenterWindow" ||
 	    (n == L"Windows.UI.Core.CoreWindow" && !w.full_caption &&
 	     !w.app_window)) {
 		return true;
@@ -62,9 +70,9 @@ inline bool fullscreen_client(const WindowTraits &w, bool maximized,
 	// Client coordinates exclude invisible resize borders. A normal maximized
 	// captioned window must not suppress taskbar snow, including auto-hide
 	// setups.
-	return !is_native_popup(w) && !w.tool && !w.no_activate &&
-	       !(maximized && w.full_caption) && client.valid() &&
-	       monitor.valid() && client.left <= monitor.left &&
+	return !is_shell_focus_proxy(w.class_name) && !is_native_popup(w) &&
+	       !w.tool && !w.no_activate && !(maximized && w.full_caption) &&
+	       client.valid() && monitor.valid() && client.left <= monitor.left &&
 	       client.top <= monitor.top && client.right >= monitor.right &&
 	       client.bottom >= monitor.bottom;
 }

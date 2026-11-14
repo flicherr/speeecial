@@ -1,6 +1,7 @@
 #pragma once
 
 #include "scene.hpp"
+#include "window_inventory.hpp"
 #include <memory>
 #include <optional>
 #include <string>
@@ -19,6 +20,11 @@ struct Display {
 
 Rect screen_rect(RECT rect) noexcept;
 std::vector<Display> enumerate_displays();
+
+// EnumWindows membership plus direct reconciliation of known live handles.
+// No DWM/COM calls; safe for the renderer's short-lived ordering snapshot too.
+std::vector<WindowOrder>
+enumerate_window_order(std::span<const HWND> required = {});
 
 bool on_battery() noexcept;
 

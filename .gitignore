@@ -1,4 +1,5 @@
 /build/
+/tools/
 /.vs/
 /out/
 *.user

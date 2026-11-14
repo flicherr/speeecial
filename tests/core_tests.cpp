@@ -1,6 +1,7 @@
 #include "core.hpp"
 #include "popup_order.hpp"
 #include "scene.hpp"
+#include "window_inventory.hpp"
 #include "window_policy.hpp"
 #include <algorithm>
 #include <array>
@@ -73,6 +74,91 @@ void transient_window_roles()
 	require(!is_native_popup({L"#32770", true, true, false, false, false, false, true}),
 	        "Captioned owned dialog still supports snow");
 	require(!is_native_popup({L"Game", true}), "Borderless unowned game remains eligible for fullscreen pause");
+	require(is_native_popup({L"ControlCenterWindow", true, false, false, false, false, true}),
+	        "Quick Settings stays native UI even with an app-window style");
+	require(is_shell_focus_proxy(L"ForegroundStaging") && !is_native_popup({L"ForegroundStaging", true}),
+	        "Shell focus proxy must be skipped, not used as a popup Z-order anchor");
+	require(!is_shell_focus_proxy(L"Game") && !is_shell_focus_proxy(L"Chrome_WidgetWin_1"),
+	        "Ordinary application windows are not shell focus proxies");
+}
+
+void window_inventory_recovery()
+{
+	std::vector<WindowOrder> order{{10, true}, {20, true}, {30, false}, {40, false}};
+	// A known taskbar omitted during a shell transition must precede applications.
+	require(recover_window(order, {25, true}, 0, 30) && order[2].window == 25,
+	        "Missing topmost taskbar remains above normal applications");
+	require(!recover_window(order, {25, true}) && !recover_window(order, {}) && order.size() == 5,
+	        "Reconciliation rejects duplicate and null handles");
+	// Use live neighbours, even when ranks from the preceding scan were different.
+	require(recover_window(order, {15, true}, 10, 20) && order[1].window == 15,
+	        "Recovered popup follows the current order");
+	require(recover_window(order, {35, false}, 30, 0) && order[5].window == 35,
+	        "A missing ordinary window follows its current upper neighbour");
+	require(recover_window(order, {45, false}, 0, 0) && order.back().window == 45,
+	        "An unanchored normal window is not raised above other applications");
+	// A taskbar demoted by Explorer must not inherit its previous topmost rank.
+	std::vector<WindowOrder> fullscreen{{10, true}, {30, false}};
+	require(recover_window(fullscreen, {25, false}, 10, 0) && fullscreen.back().window == 25,
+	        "A demoted taskbar stays below fullscreen content");
+}
+
+void incomplete_inventory_preserves_banks()
+{
+	Settings settings;
+	settings.melt = false;
+	Landscape world;
+	auto app = window();
+	auto bar = floor_surface();
+	sync(world, {app, bar}, settings);
+	seed(world, app.id, 20);
+	seed(world, bar.id, 20);
+	const float app_snow = total(world.find(app.id)->snow);
+	const float bar_snow = total(world.find(bar.id)->snow);
+	for (int cycle = 0; cycle < 120; ++cycle) {
+		// The foreground/hover HWND can still be a live taskbar absent from
+		// enumeration. Rapid flyout changes can omit an ordinary support too.
+		std::vector<WindowOrder> order{{200, true}};
+		if (cycle % 2 == 0) {
+			order.push_back({bar.id, true});
+		}
+		if (cycle % 3 == 0) {
+			order.push_back({app.id, false});
+		}
+		order.push_back({300, false});
+		recover_window(order, {bar.id, true}, 200, app.id);
+		recover_window(order, {app.id, false}, bar.id, 300);
+		std::vector<SurfaceSnapshot> surfaces;
+		std::vector<Blocker> blockers;
+		for (std::size_t i = 0; i < order.size(); ++i) {
+			const int rank = static_cast<int>(i);
+			if (order[i].window == 200) {
+				blockers.push_back({{0, 0, 320, 320}, rank, false, true});
+			} else if (order[i].window == bar.id || order[i].window == app.id) {
+				auto support = order[i].window == bar.id ? bar : app;
+				support.z_order = rank;
+				surfaces.push_back(support); // Direct HWND queries still report visible.
+				blockers.push_back({support.rect, rank});
+			}
+		}
+		sync(world, surfaces, settings, blockers, 0.016f);
+		require(world.find(app.id)->enabled(settings) && !world.find(app.id)->visible_regions.empty() &&
+		            world.find(bar.id)->enabled(settings) && !world.find(bar.id)->visible_regions.empty(),
+		        "Incomplete inventories must not flicker either kind of bank");
+		require(total(world.find(app.id)->snow) == app_snow && total(world.find(bar.id)->snow) == bar_snow &&
+		            world.emissions().empty(),
+		        "Reconciliation preserves accumulated snow without spurious avalanches");
+	}
+	// Recovery preserves membership, not visibility: real hiding still wins.
+	bar.state = SurfaceState::hidden;
+	app.state = SurfaceState::suspended;
+	sync(world, {app, bar}, settings);
+	require(!world.find(app.id)->enabled(settings) && !world.find(bar.id)->enabled(settings),
+	        "Actual cloak/visibility state hides recovered surfaces without a grace timer");
+	bar.state = app.state = SurfaceState::visible;
+	sync(world, {app, bar}, settings);
+	require(total(world.find(app.id)->snow) == app_snow && total(world.find(bar.id)->snow) == bar_snow,
+	        "Restoring visibility retains both profiles");
 }
 
 void popup_order_stays_above_applications()
@@ -259,12 +345,71 @@ void fullscreen_foreground_geometry()
 	        "Outer resize border cannot fake client coverage");
 	require(!fullscreen_client({L"App", false, true, true}, true, monitor, monitor),
 	        "Ordinary maximized captioned app must preserve the taskbar cap");
-	for (const auto name : {L"tooltips_class32", L"MultitaskingViewFrame", L"#32768"}) {
+	for (const auto name : {L"tooltips_class32", L"MultitaskingViewFrame", L"#32768", L"ControlCenterWindow",
+	                        L"ForegroundStaging", L"Windows.UI.Core.CoreWindow"}) {
 		require(!fullscreen_client({name, true}, false, monitor, monitor), "Shell popup is not fullscreen content");
 	}
 	require(!fullscreen_client({L"Overlay", true, false, false, true, true}, false, monitor, monitor),
 	        "Nonactivating decorative window is not fullscreen content");
 	require(!fullscreen_client(game, false, {}, monitor), "Invalid client geometry is rejected");
+	require(fullscreen_client({L"Windows.UI.Core.CoreWindow", true, false, false, false, false, true}, false, monitor,
+	                          monitor),
+	        "A real fullscreen UWP app must not be excluded with shell CoreWindow flyouts");
+}
+
+void shell_flyout_focus_cycle()
+{
+	const Rect monitor{0, 0, 320, 320};
+	const WindowTraits proxy{L"ForegroundStaging", true};
+	const WindowTraits start{L"Windows.UI.Core.CoreWindow", true};
+	const WindowTraits quick{L"ControlCenterWindow", true, false, false, false, false, true};
+	const WindowTraits app{L"App", false, true, true};
+	const WindowTraits game{L"Game", true, false, false, false, false, true};
+	for (bool auto_pause : {false, true}) {
+		Settings settings;
+		settings.pause_fullscreen = auto_pause;
+		Landscape world;
+		const auto bar = floor_surface();
+		sync(world, {bar}, settings);
+		seed(world, bar.id, 20);
+		const auto saved = total(world.find(bar.id)->snow);
+		const auto revision = world.find(bar.id)->snow.revision();
+		const auto focus = [&](const WindowTraits &w) {
+			const auto cover =
+			    fullscreen_client(w, w.full_caption, monitor, monitor) ? std::optional<Rect>{monitor} : std::nullopt;
+			world.begin_foreground_transition(cover);
+		};
+		const auto check_bank = [&] {
+			const auto *s = world.find(bar.id);
+			require(s->enabled(settings) && !s->foreground_pending && !s->visible_regions.empty(),
+			        "Visible taskbar keeps its snow without requiring application focus");
+			require(total(s->snow) == saved && s->snow.revision() == revision && world.emissions().empty(),
+			        "Shell focus changes preserve the bank without clearing or shedding it");
+		};
+		for (const auto flyout : {start, quick}) {
+			for (bool close_with_mouse : {false, true}) {
+				focus(proxy); // Opening by taskbar click can stage activation first.
+				check_bank();
+				focus(flyout);
+				// A host rectangle may include transparent space outside the panel.
+				sync(world, {bar}, settings, {{monitor, -1, false, is_native_popup(flyout)}});
+				check_bank();
+				focus(close_with_mouse ? proxy : app);
+				for (int scan = 0; scan < 20; ++scan) {
+					std::vector<Blocker> blockers;
+					if (close_with_mouse && !is_shell_focus_proxy(proxy.class_name)) {
+						blockers.push_back({monitor, -1});
+					}
+					sync(world, {bar}, settings, blockers);
+					check_bank(); // Focus does not return to an app in the mouse branch.
+				}
+				focus(game);
+				require(!world.find(bar.id)->enabled(settings), "Actual fullscreen focus still hides snow immediately");
+				focus(flyout);
+				check_bank(); // Shell focus cancels an unacknowledged fullscreen transition.
+			}
+		}
+	}
 }
 
 void foreground_taskbar_transition()
@@ -924,6 +1069,8 @@ int main()
 	const std::pair<const char *, void (*)()> tests[] = {
 	    {"settings_and_limits", settings_and_limits},
 	    {"transient_window_roles", transient_window_roles},
+	    {"window_inventory_recovery", window_inventory_recovery},
+	    {"incomplete_inventory_preserves_banks", incomplete_inventory_preserves_banks},
 	    {"popup_order_stays_above_applications", popup_order_stays_above_applications},
 	    {"popup_order_is_per_monitor", popup_order_is_per_monitor},
 	    {"browser_status_layer_policy", browser_status_layer_policy},
@@ -931,6 +1078,7 @@ int main()
 	    {"taskbar_geometry_visibility", taskbar_geometry_visibility},
 	    {"hidden_taskbar_keeps_profile_without_rendering", hidden_taskbar_keeps_profile_without_rendering},
 	    {"fullscreen_foreground_geometry", fullscreen_foreground_geometry},
+	    {"shell_flyout_focus_cycle", shell_flyout_focus_cycle},
 	    {"foreground_taskbar_transition", foreground_taskbar_transition},
 	    {"bank_bounds_resize_and_melt", bank_bounds_resize_and_melt},
 	    {"curved_bank_shoulders", curved_bank_shoulders},

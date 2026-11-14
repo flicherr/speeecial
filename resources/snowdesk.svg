@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"
+     viewBox="24 24 1207 1207" role="img" aria-labelledby="title description">
+  <title id="title">speeecial — geometric ice star</title>
+  <desc id="description">Editable vector reconstruction of the selected four-point ice star, with three pale ice facets and a blue outline. The background is transparent.</desc>
+  <defs>
+    <linearGradient id="outline" gradientUnits="userSpaceOnUse" x1="320" y1="160" x2="850" y2="1130">
+      <stop offset="0" stop-color="#345e7c"/>
+      <stop offset="1" stop-color="#2e5b7d"/>
+    </linearGradient>
+    <linearGradient id="ice-white" gradientUnits="userSpaceOnUse" x1="626" y1="141" x2="626" y2="680">
+      <stop offset="0" stop-color="#f7fbff"/>
+      <stop offset="0.6" stop-color="#fdfdff"/>
+      <stop offset="1" stop-color="#fcfcfd"/>
+    </linearGradient>
+    <linearGradient id="ice-left" gradientUnits="userSpaceOnUse" x1="240" y1="590" x2="650" y2="1080">
+      <stop offset="0" stop-color="#d5eeff"/>
+      <stop offset="0.6" stop-color="#d6edfc"/>
+      <stop offset="1" stop-color="#e2f2ff"/>
+    </linearGradient>
+    <linearGradient id="ice-right" gradientUnits="userSpaceOnUse" x1="650" y1="630" x2="1020" y2="900">
+      <stop offset="0" stop-color="#9fd4f4"/>
+      <stop offset="0.55" stop-color="#a7d6f6"/>
+      <stop offset="1" stop-color="#b7def8"/>
+    </linearGradient>
+    <clipPath id="ice-clip" clipPathUnits="userSpaceOnUse">
+      <path d="M626 141 747 514 1048 638 748 769 626 1109 505 768 205 638 507 511Z"/>
+    </clipPath>
+  </defs>
+  <!-- Separate filled contours keep the sharp tips inside the canvas. -->
+  <path id="star-outline" fill="url(#outline)"
+        d="M626 74 765 499 1094 639 765 783 626 1181 488 784 159 639 488 499Z"/>
+  <g id="ice-facets" clip-path="url(#ice-clip)">
+    <path id="upper-facet" fill="url(#ice-white)"
+          d="M626 141 747 514 1048 638 748 769 626 1109 505 768 205 638 507 511Z"/>
+    <path id="left-facet" fill="url(#ice-left)" d="M150 525 626 680V1200H150Z"/>
+    <path id="right-facet" fill="url(#ice-right)" d="M626 680 1100 464V1200H626Z"/>
+  </g>
+</svg>

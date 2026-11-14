@@ -582,7 +582,8 @@ struct TrayMenu::Impl {
 
 	void append(HMENU menu, UINT id, std::wstring label, Role role,
 	            MenuGlyph glyph, MenuMark mark, bool checked,
-	            std::wstring value = {}, HMENU child = nullptr)
+	            std::wstring value = {}, HMENU child = nullptr,
+	            bool enabled = true)
 	{
 		auto entry = std::make_unique<Entry>();
 		auto &e = *entry;
@@ -641,7 +642,7 @@ struct TrayMenu::Impl {
 		info.fMask = MIIM_ID | MIIM_FTYPE | MIIM_STATE | MIIM_STRING;
 		info.wID = id;
 		info.fState = checked ? MFS_CHECKED : MFS_UNCHECKED;
-		if (role != Role::item) {
+		if (role != Role::item || !enabled) {
 			info.fState |= MFS_DISABLED;
 		}
 		info.dwTypeData = native_text.data();
@@ -853,9 +854,10 @@ HMENU TrayMenu::submenu(HMENU parent, const std::wstring &label,
 
 void TrayMenu::item(HMENU menu, UINT id, const std::wstring &label,
                     MenuMark mark, bool checked, MenuGlyph glyph,
-                    const std::wstring &value)
+                    const std::wstring &value, bool enabled)
 {
-	impl_->append(menu, id, label, Role::item, glyph, mark, checked, value);
+	impl_->append(menu, id, label, Role::item, glyph, mark, checked, value,
+	              nullptr, enabled);
 }
 
 bool TrayMenu::measure(MEASUREITEMSTRUCT &item) const noexcept

@@ -1,19 +1,21 @@
 #pragma once
+
 #include "renderer.hpp"
 #include "settings.hpp"
 #include "tray_menu.hpp"
+#include "updater.hpp"
 #include "win_util.hpp"
 #include <chrono>
 
 namespace snow
 {
-class App
-{
+class App {
   public:
 	explicit App(HINSTANCE instance);
 	~App();
 	int run();
-	static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+	static LRESULT CALLBACK window_proc(HWND window, UINT message,
+	                                    WPARAM wparam, LPARAM lparam) noexcept;
 
   private:
 	LRESULT dispatch(UINT message, WPARAM wparam, LPARAM lparam);
@@ -27,9 +29,11 @@ class App
 	void refresh_desktop(bool force = false);
 	void sync_timer();
 	void tick();
-	void notify(const wchar_t *title, const wchar_t *text, DWORD flags = 0) noexcept;
+	void notify(const wchar_t *title, const wchar_t *text,
+	            DWORD flags = 0) noexcept;
 	void report_error(const std::string &error, bool graphics_error) noexcept;
 	void diagnostics();
+	void update_finished();
 
 	HINSTANCE instance_;
 	HWND window_{};
@@ -46,13 +50,10 @@ class App
 	Landscape landscape_;
 	std::unique_ptr<DesktopTracker> tracker_;
 	std::unique_ptr<Renderer> renderer_;
+	std::unique_ptr<Updater> updater_;
+	std::uint64_t update_revision_ = 0;
 	UINT taskbar_created_{};
-	enum class RunMode
-	{
-		running,
-		hidden,
-		stopped
-	};
+	enum class RunMode { running, hidden, stopped };
 	RunMode run_mode_ = RunMode::running;
 	bool tray_added_ = false, locked_ = false, display_off_ = false;
 	bool rebuilding_ = false, menu_open_ = false, closing_ = false;

@@ -3,6 +3,9 @@
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
 	try {
+		if (auto result = snow::run_update_mode()) {
+			return *result;
+		}
 		// Keep the prototype's singleton identity to prevent two overlays
 		// running.
 		snow::UniqueHandle instance_mutex(

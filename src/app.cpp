@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "version.hpp"
 #include <algorithm>
 #include <commctrl.h>
 #include <cstring>
@@ -39,6 +40,10 @@ enum Command : UINT
 	cmd_cursor,
 	cmd_capture,
 	cmd_stop,
+	cmd_update_check,
+	cmd_update_auto,
+	cmd_update_install,
+	cmd_update_page,
 	cmd_density = 200,
 	cmd_wind = 220,
 	cmd_fps = 240,
@@ -53,6 +58,7 @@ App::App(HINSTANCE instance) : instance_(instance), settings_(store_.load()) {}
 App::~App()
 {
 	closing_ = true;
+	updater_.reset();
 	close_menu_tip();
 	tracker_.reset();
 	if (power_notification_) {
@@ -109,7 +115,7 @@ int App::run()
 		check_win(FALSE, "Create policy timer");
 	}
 	measurement_start_ = std::chrono::steady_clock::now();
-	store_.log("speeecial (snow desktop) 1.0.10 started");
+	store_.log("speeecial (snow desktop) " SPEEECIAL_VERSION " started");
 	// If already enabled, follow this executable after an upgrade/move.
 	try {
 		if (SettingsStore::autostart()) {
@@ -119,6 +125,14 @@ int App::run()
 		store_.log(error.what());
 	}
 	rebuild();
+	try {
+		updater_ = std::make_unique<Updater>(window_, store_.directory());
+	} catch (const std::exception &error) {
+		report_error(error.what(), false);
+	}
+	if (tray_added_ && renderer_) {
+		acknowledge_update_startup();
+	}
 	MSG message{};
 	bool quit = false;
 	int exit_code = 0;
@@ -371,7 +385,7 @@ void App::show_menu()
 	{
 		TrayMenu menu(instance_, point);
 		const auto root = menu.handle();
-		menu.header(L"1.0.10");
+		menu.header(SPEEECIAL_VERSION_W);
 		menu_detail_ = renderer_ ? std::to_wstring(renderer_->particle_count()) + L" частиц · лимит " +
 		                               std::to_wstring(settings_.fps) + L" FPS"
 		                         : L"Графика недоступна — подробности в журнале";
@@ -430,6 +444,31 @@ void App::show_menu()
 		          MenuGlyph::capture);
 		menu.item(root, cmd_autostart, L"Автозапуск с Windows", MenuMark::toggle, SettingsStore::autostart(),
 		          MenuGlyph::startup);
+		if (updater_) {
+			const auto state = updater_->view();
+			const auto sub =
+			    menu.submenu(root, L"Обновления", MenuGlyph::refresh, state.release ? widen(state.release->tag) : L"");
+			menu.item(sub, cmd_update_check,
+			          state.status == Updater::Status::checking ? L"Проверка…" : L"Проверить обновления",
+			          MenuMark::none, false, MenuGlyph::refresh, L"", !state.busy());
+			menu.item(sub, cmd_update_auto, L"Проверять автоматически", MenuMark::toggle, updater_->automatic());
+			if (state.release && state.release->installable()) {
+				auto label = L"Обновить до " + widen(state.release->tag);
+				if (state.status == Updater::Status::downloading) {
+					label = L"Загрузка… " + std::to_wstring(state.progress) + L"%";
+				}
+				if (state.status == Updater::Status::ready) {
+					label = L"Перезапуск…";
+				}
+				menu.item(sub, cmd_update_install, label, MenuMark::none, false, MenuGlyph::startup, L"",
+				          !state.busy());
+			} else if (state.release) {
+				menu.item(sub, 0, L"Доступна " + widen(state.release->tag) + L" — скачать вручную", MenuMark::none,
+				          false, MenuGlyph::none, L"", false);
+			}
+			menu.separator(sub);
+			menu.item(sub, cmd_update_page, L"Релизы на GitHub", MenuMark::none, false, MenuGlyph::file);
+		}
 		{
 			const auto sub = menu.submenu(root, L"Диагностика", MenuGlyph::tools);
 			menu.item(sub, cmd_retry, L"Пересоздать графику", MenuMark::none, false, MenuGlyph::refresh);
@@ -567,6 +606,26 @@ void App::command(UINT id)
 		settings_.height = static_cast<int>(id - cmd_height);
 	} else {
 		switch (id) {
+		case cmd_update_check:
+			if (updater_) {
+				updater_->check(true);
+			}
+			return;
+		case cmd_update_auto:
+			if (updater_) {
+				updater_->set_automatic(!updater_->automatic());
+			}
+			return;
+		case cmd_update_install:
+			if (updater_) {
+				updater_->install();
+			}
+			return;
+		case cmd_update_page: {
+			const auto page = widen(std::string(updates::releases_page));
+			ShellExecuteW(window_, L"open", page.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+			return;
+		}
 		case cmd_pause:
 			run_mode_ = run_mode_ == RunMode::hidden ? RunMode::running : RunMode::hidden;
 			changed = false;
@@ -656,6 +715,60 @@ void App::command(UINT id)
 	update_policy();
 }
 
+void App::update_finished()
+{
+	if (!updater_ || closing_) {
+		return;
+	}
+	const auto state = updater_->view();
+	if (state.revision == update_revision_) {
+		return;
+	}
+	update_revision_ = state.revision;
+	switch (state.status) {
+	case Updater::Status::available: {
+		const auto detail = L"Доступна " + widen(state.release->tag) +
+		                    (state.release->installable()
+		                         ? L". Установить: меню → Обновления."
+		                         : L". EXE для встроенного обновления отсутствует; доступно скачивание на GitHub.");
+		notify(L"speeecial — обновление", detail.c_str());
+		break;
+	}
+	case Updater::Status::current:
+		if (state.manual) {
+			notify(L"speeecial", L"У тебя актуальная версия.");
+		}
+		break;
+	case Updater::Status::failed:
+		// Network failures must never enter report_error(graphics_error=true).
+		if (state.manual) {
+			notify(L"Не удалось обновить speeecial",
+			       (state.detail + L". Релизы доступны через меню Обновления.").c_str(), NIIF_WARNING);
+		}
+		{
+			const auto text = state.detail;
+			const int count = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0,
+			                                      nullptr, nullptr);
+			std::string utf8(static_cast<std::size_t>(count), '\0');
+			WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), utf8.data(), count, nullptr,
+			                    nullptr);
+			store_.log("Update: " + utf8);
+		}
+		break;
+	case Updater::Status::ready:
+		if (updater_->commit()) {
+			if (menu_open_) {
+				EndMenu();
+			}
+			closing_ = true;
+			PostQuitMessage(0);
+		}
+		break;
+	default:
+		break;
+	}
+}
+
 void App::diagnostics()
 {
 	PROCESS_MEMORY_COUNTERS_EX memory{};
@@ -664,7 +777,7 @@ void App::diagnostics()
 	    GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&memory), sizeof(memory)),
 	    "Read memory counters");
 	std::ostringstream out;
-	out << "speeecial (snow desktop) 1.0.10\n";
+	out << "speeecial (snow desktop) " SPEEECIAL_VERSION "\n";
 	out << "Graphics scene builds: " << graphics_rebuilds_ << "\nLast frame CPU wall time (ms): " << last_frame_work_ms_
 	    << "\nPeak frame CPU wall time (ms): " << peak_frame_work_ms_
 	    << "\nPeak frame interval (ms): " << peak_frame_interval_ms_ << "\nLate frame intervals: " << late_frames_
@@ -726,6 +839,9 @@ LRESULT App::dispatch(UINT message, WPARAM wparam, LPARAM lparam)
 		if (menu_open_) {
 			EndMenu();
 		}
+		return 0;
+	case message_update:
+		update_finished();
 		return 0;
 	case message_tray:
 		if (LOWORD(lparam) == WM_CONTEXTMENU || LOWORD(lparam) == NIN_SELECT || LOWORD(lparam) == NIN_KEYSELECT ||
@@ -791,6 +907,9 @@ LRESULT App::dispatch(UINT message, WPARAM wparam, LPARAM lparam)
 			if (renderer_) {
 				renderer_->refresh_foreground();
 				renderer_->check_device();
+			}
+			if (tray_added_ && renderer_) {
+				acknowledge_update_startup();
 			}
 			update_policy();
 			refresh_desktop(); // The scanner owns the one-second reconciliation.

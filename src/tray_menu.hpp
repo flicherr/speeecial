@@ -48,8 +48,8 @@ class TrayMenu {
 	              const std::wstring &value = {});
 	void item(HMENU menu, UINT id, const std::wstring &label,
 	          MenuMark mark = MenuMark::none, bool checked = false,
-	          MenuGlyph glyph = MenuGlyph::none,
-	          const std::wstring &value = {});
+	          MenuGlyph glyph = MenuGlyph::none, const std::wstring &value = {},
+	          bool enabled = true);
 	bool measure(MEASUREITEMSTRUCT &item) const noexcept;
 	bool draw(const DRAWITEMSTRUCT &item) const noexcept;
 	LRESULT character(wchar_t key, HMENU menu) const noexcept;

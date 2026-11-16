@@ -21,8 +21,7 @@ constexpr UINT message_policy = WM_APP + 3;
 constexpr UINT_PTR timer_frame = 1, timer_policy = 2, timer_rebuild = 3, timer_desktop = 4, timer_menu_tip = 5;
 constexpr UINT icon_id = 1;
 
-enum Command : UINT
-{
+enum Command : UINT {
 	cmd_pause = 100,
 	cmd_clear,
 	cmd_accumulate,
@@ -48,9 +47,9 @@ enum Command : UINT
 	cmd_wind = 220,
 	cmd_fps = 240,
 	cmd_layer = 310,
-	cmd_height = 330
+	cmd_height = 330,
+	cmd_theme = 500
 };
-
 }
 
 App::App(HINSTANCE instance) : instance_(instance), settings_(store_.load()) {}
@@ -383,7 +382,11 @@ void App::show_menu()
 	GetCursorPos(&point);
 	UINT selected = 0;
 	{
-		TrayMenu menu(instance_, point);
+		const auto theme = settings_.theme == Theme::light ? MenuTheme::light
+		                   : settings_.theme == Theme::dark
+		                       ? MenuTheme::dark
+		                       : MenuTheme::automatic;
+		TrayMenu menu(instance_, point, theme);
 		const auto root = menu.handle();
 		menu.header(SPEEECIAL_VERSION_W);
 		menu_detail_ = renderer_ ? std::to_wstring(renderer_->particle_count()) + L" частиц · лимит " +
@@ -429,6 +432,16 @@ void App::show_menu()
 		}
 		menu.item(root, cmd_cursor, L"Реакция на курсор", MenuMark::toggle, settings_.cursor, MenuGlyph::cursor);
 		menu.section(root, L"ПРИЛОЖЕНИЕ");
+		{
+			const wchar_t *labels[] = {L"Системная", L"Светлая", L"Тёмная"};
+			const auto current = static_cast<UINT>(settings_.theme);
+			const auto sub =
+				menu.submenu(root, L"Тема", MenuGlyph::theme, labels[current]);
+			for (UINT i = 0; i < std::size(labels); ++i) {
+				menu.item(sub, cmd_theme + i, labels[i], MenuMark::radio,
+				          current == i);
+			}
+		}
 		{
 			const auto sub =
 			    menu.submenu(root, L"Производительность", MenuGlyph::speed, std::to_wstring(settings_.fps) + L" FPS");
@@ -606,6 +619,8 @@ void App::command(UINT id)
 	} else if (id == cmd_height + 12 || id == cmd_height + 22 ||
 	           id == cmd_height + 40) {
 		settings_.height = static_cast<int>(id - cmd_height);
+	} else if (id >= cmd_theme && id < cmd_theme + 3) {
+		settings_.theme = static_cast<Theme>(id - cmd_theme);
 	} else {
 		switch (id) {
 		case cmd_update_check:

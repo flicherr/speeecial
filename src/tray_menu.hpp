@@ -23,7 +23,8 @@ enum class MenuGlyph {
 	clear,
 	folder,
 	file,
-	refresh
+	refresh,
+	theme
 };
 enum class MenuMark { none, toggle, radio, action };
 enum class MenuTheme { automatic, light, dark, native };

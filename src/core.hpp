@@ -11,11 +11,13 @@ namespace snow
 enum class Density : int { off, light, normal, heavy };
 enum class Wind : int { calm, gentle, gusts };
 enum class Layer : int { front, behind };
+enum class Theme : int { system, light, dark };
 
 struct Settings {
 	Density density = Density::normal;
 	Wind wind = Wind::gentle;
 	Layer layer = Layer::front;
+	Theme theme = Theme::system;
 	int fps = 30, height = 22;
 	bool accumulate = true, windows = true, collapse = true, shake = true;
 	bool cursor = false, show_capture = true, melt = false;

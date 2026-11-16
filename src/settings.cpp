@@ -40,6 +40,7 @@ Settings SettingsStore::load() const
 	s.fps = read(L"FPS", 30);
 	s.height = read(L"Height", 22);
 	s.layer = static_cast<Layer>(read(L"Layer", 0));
+	s.theme = static_cast<Theme>(read(L"Theme", 0));
 	s.windows = read(L"Windows", 1) != 0;
 	s.collapse = read(L"Collapse", 1) != 0;
 	s.shake = read(L"Shake", 1) != 0;
@@ -67,6 +68,7 @@ void SettingsStore::save(const Settings &s) const
 	write(L"FPS", s.fps);
 	write(L"Height", s.height);
 	write(L"Layer", static_cast<int>(s.layer));
+	write(L"Theme", static_cast<int>(s.theme));
 	write(L"Windows", s.windows);
 	write(L"Collapse", s.collapse);
 	write(L"Shake", s.shake);

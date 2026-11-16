@@ -225,15 +225,23 @@ void popup_order_is_per_monitor()
 void settings_and_limits()
 {
 	Settings s;
+	require(s.theme == Theme::system, "System theme must be the default");
 	s.density = static_cast<Density>(-9);
 	s.wind = static_cast<Wind>(999);
 	s.layer = static_cast<Layer>(999);
+	s.theme = static_cast<Theme>(999);
 	s.height = -1;
 	s.fps = 999;
 	s.normalize();
 	require(s.density == Density::normal && s.wind == Wind::gentle && s.layer == Layer::front && s.height == 22 &&
 	            s.fps == 30,
 	        "Invalid settings");
+	require(s.theme == Theme::system, "Invalid theme must fall back to system");
+	for (Theme theme : {Theme::system, Theme::light, Theme::dark}) {
+		s.theme = theme;
+		s.normalize();
+		require(s.theme == theme, "Explicit theme selection must be preserved");
+	}
 	for (int rate : {20, 30, 60, 144, 240}) {
 		s.fps = rate;
 		s.normalize();

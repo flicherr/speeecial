@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "localization.hpp"
 #include "popup_order.hpp"
 #include "scene.hpp"
 #include "window_inventory.hpp"
@@ -226,6 +227,38 @@ void settings_and_limits()
 {
 	Settings s;
 	require(s.theme == Theme::system, "System theme must be the default");
+	require(s.language == Language::system,
+	        "System language must be the default");
+	for (bool system_russian : {false, true}) {
+		require(resolve_language(Language::system, system_russian) ==
+		            (system_russian ? Language::russian : Language::english),
+		        "System language chooses Russian or falls back to English");
+		for (Language language : {Language::russian, Language::english}) {
+			require(resolve_language(language, system_russian) == language,
+			        "Manual language must override the system preference");
+		}
+	}
+	for (const auto &entry : translations) {
+		require(entry.russian && entry.russian[0] && entry.english &&
+		            entry.english[0],
+		        "Every menu string must have both translations");
+	}
+	require(std::wstring(localized(Text::snowfall, Language::english)) ==
+	                L"Snowfall" &&
+	            std::wstring(localized(Text::snowfall, Language::russian)) ==
+	                L"Снегопад",
+	        "The selected language must choose the matching menu text");
+	for (Language language :
+	     {Language::system, Language::russian, Language::english}) {
+		s.language = language;
+		s.normalize();
+		require(s.language == language,
+		        "Language selection must survive normalization");
+	}
+	s.language = static_cast<Language>(999);
+	s.normalize();
+	require(s.language == Language::system,
+	        "Invalid language falls back to system");
 	s.density = static_cast<Density>(-9);
 	s.wind = static_cast<Wind>(999);
 	s.layer = static_cast<Layer>(999);

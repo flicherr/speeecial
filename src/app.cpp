@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "localization.hpp"
 #include "version.hpp"
 #include <algorithm>
 #include <commctrl.h>
@@ -48,7 +49,8 @@ enum Command : UINT {
 	cmd_fps = 240,
 	cmd_layer = 310,
 	cmd_height = 330,
-	cmd_theme = 500
+	cmd_theme = 500,
+	cmd_language = 510
 };
 }
 
@@ -378,6 +380,10 @@ void App::show_menu()
 		}
 	} guard(menu_open_);
 
+	const auto language = resolve_language(
+		settings_.language,
+		PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_RUSSIAN);
+	const auto tr = [language](Text text) { return localized(text, language); };
 	POINT point{};
 	GetCursorPos(&point);
 	UINT selected = 0;
@@ -389,54 +395,89 @@ void App::show_menu()
 		TrayMenu menu(instance_, point, theme);
 		const auto root = menu.handle();
 		menu.header(SPEEECIAL_VERSION_W);
-		menu_detail_ = renderer_ ? std::to_wstring(renderer_->particle_count()) + L" частиц · лимит " +
-		                               std::to_wstring(settings_.fps) + L" FPS"
-		                         : L"Графика недоступна — подробности в журнале";
-		menu.section(root, L"ЭФФЕКТЫ");
+		menu_detail_ = renderer_
+		                   ? std::to_wstring(renderer_->particle_count()) +
+		                         tr(Text::particles) +
+		                         std::to_wstring(settings_.fps) + L" FPS"
+		                   : tr(Text::graphics_unavailable);
+		menu.section(root, tr(Text::effects));
 		{
-			const wchar_t *labels[] = {L"Выключен", L"Слабый", L"Обычный", L"Метель"};
+			const wchar_t *labels[] = {tr(Text::off), tr(Text::light),
+			                           tr(Text::normal), tr(Text::blizzard)};
 			const auto current = std::clamp(static_cast<int>(settings_.density), 0, 3);
-			const auto sub = menu.submenu(root, L"Снегопад", MenuGlyph::snow, labels[current]);
+			const auto sub = menu.submenu(root, tr(Text::snowfall),
+			                              MenuGlyph::snow, labels[current]);
 			for (UINT i = 0; i < std::size(labels); ++i) {
 				menu.item(sub, cmd_density + i, labels[i], MenuMark::radio, current == static_cast<int>(i));
 			}
 		}
 		{
-			const auto sub = menu.submenu(root, L"Расположение", MenuGlyph::layers,
-			                              settings_.layer == Layer::front ? L"Поверх окон" : L"За окнами");
-			menu.item(sub, cmd_layer, L"Поверх окон", MenuMark::radio, settings_.layer == Layer::front);
-			menu.item(sub, cmd_layer + 1, L"За окнами", MenuMark::radio, settings_.layer == Layer::behind);
+			const auto sub = menu.submenu(
+				root, tr(Text::placement), MenuGlyph::layers,
+				settings_.layer == Layer::front ? tr(Text::in_front)
+												: tr(Text::behind));
+			menu.item(sub, cmd_layer, tr(Text::in_front), MenuMark::radio,
+			          settings_.layer == Layer::front);
+			menu.item(sub, cmd_layer + 1, tr(Text::behind), MenuMark::radio,
+			          settings_.layer == Layer::behind);
 		}
 		{
-			const wchar_t *labels[] = {L"Штиль", L"Слабый", L"Порывистый"};
+			const wchar_t *labels[] = {tr(Text::calm), tr(Text::light),
+			                           tr(Text::gusty)};
 			const auto current = std::clamp(static_cast<int>(settings_.wind), 0, 2);
-			const auto sub = menu.submenu(root, L"Ветер", MenuGlyph::wind, labels[current]);
+			const auto sub = menu.submenu(root, tr(Text::wind), MenuGlyph::wind,
+			                              labels[current]);
 			for (UINT i = 0; i < std::size(labels); ++i) {
 				menu.item(sub, cmd_wind + i, labels[i], MenuMark::radio, current == static_cast<int>(i));
 			}
 		}
 		{
-			const auto sub = menu.submenu(root, L"Сугробы", MenuGlyph::bank);
-			menu.item(sub, cmd_windows, L"На верхних гранях окон", MenuMark::toggle, settings_.windows);
-			menu.item(sub, cmd_accumulate, L"На панели задач", MenuMark::toggle, settings_.accumulate);
-			menu.item(sub, cmd_collapse, L"Обвал при закрытии и сворачивании", MenuMark::toggle, settings_.collapse);
-			menu.item(sub, cmd_shake, L"Осыпание при резком перемещении", MenuMark::toggle, settings_.shake);
-			menu.item(sub, cmd_melt, L"Постепенное таяние", MenuMark::toggle, settings_.melt);
-			const auto height =
-			    menu.submenu(sub, L"Максимальная толщина", MenuGlyph::none, std::to_wstring(settings_.height));
-			menu.item(height, cmd_height + 12, L"Тонкий — 12", MenuMark::radio, settings_.height == 12);
-			menu.item(height, cmd_height + 22, L"Обычный — 22", MenuMark::radio, settings_.height == 22);
-			menu.item(height, cmd_height + 40, L"Пышный — 40", MenuMark::radio, settings_.height == 40);
-			menu.separator(sub);
-			menu.item(sub, cmd_clear, L"Очистить весь снег", MenuMark::none, false, MenuGlyph::clear);
-		}
-		menu.item(root, cmd_cursor, L"Реакция на курсор", MenuMark::toggle, settings_.cursor, MenuGlyph::cursor);
-		menu.section(root, L"ПРИЛОЖЕНИЕ");
-		{
-			const wchar_t *labels[] = {L"Системная", L"Светлая", L"Тёмная"};
-			const auto current = static_cast<UINT>(settings_.theme);
 			const auto sub =
-				menu.submenu(root, L"Тема", MenuGlyph::theme, labels[current]);
+				menu.submenu(root, tr(Text::banks), MenuGlyph::bank);
+			menu.item(sub, cmd_windows, tr(Text::on_windows), MenuMark::toggle,
+			          settings_.windows);
+			menu.item(sub, cmd_accumulate, tr(Text::on_taskbar),
+			          MenuMark::toggle, settings_.accumulate);
+			menu.item(sub, cmd_collapse, tr(Text::collapse), MenuMark::toggle,
+			          settings_.collapse);
+			menu.item(sub, cmd_shake, tr(Text::shake), MenuMark::toggle,
+			          settings_.shake);
+			menu.item(sub, cmd_melt, tr(Text::melt), MenuMark::toggle,
+			          settings_.melt);
+			const auto height =
+				menu.submenu(sub, tr(Text::max_depth), MenuGlyph::none,
+			                 std::to_wstring(settings_.height));
+			menu.item(height, cmd_height + 12, tr(Text::thin), MenuMark::radio,
+			          settings_.height == 12);
+			menu.item(height, cmd_height + 22, tr(Text::normal_depth),
+			          MenuMark::radio, settings_.height == 22);
+			menu.item(height, cmd_height + 40, tr(Text::deep), MenuMark::radio,
+			          settings_.height == 40);
+			menu.separator(sub);
+			menu.item(sub, cmd_clear, tr(Text::clear), MenuMark::none, false,
+			          MenuGlyph::clear);
+		}
+		menu.item(root, cmd_cursor, tr(Text::cursor), MenuMark::toggle,
+		          settings_.cursor, MenuGlyph::cursor);
+		menu.section(root, tr(Text::application));
+		{
+			const wchar_t *labels[] = {tr(Text::system_language), L"Русский",
+			                           L"English"};
+			const auto current = static_cast<UINT>(settings_.language);
+			const auto sub = menu.submenu(root, tr(Text::language),
+			                              MenuGlyph::language, labels[current]);
+			for (UINT i = 0; i < std::size(labels); ++i) {
+				menu.item(sub, cmd_language + i, labels[i], MenuMark::radio,
+				          current == i);
+			}
+		}
+		{
+			const wchar_t *labels[] = {tr(Text::system_theme),
+			                           tr(Text::light_theme),
+			                           tr(Text::dark_theme)};
+			const auto current = static_cast<UINT>(settings_.theme);
+			const auto sub = menu.submenu(root, tr(Text::theme),
+			                              MenuGlyph::theme, labels[current]);
 			for (UINT i = 0; i < std::size(labels); ++i) {
 				menu.item(sub, cmd_theme + i, labels[i], MenuMark::radio,
 				          current == i);
@@ -444,56 +485,76 @@ void App::show_menu()
 		}
 		{
 			const auto sub =
-			    menu.submenu(root, L"Производительность", MenuGlyph::speed, std::to_wstring(settings_.fps) + L" FPS");
+				menu.submenu(root, tr(Text::performance), MenuGlyph::speed,
+			                 std::to_wstring(settings_.fps) + L" FPS");
 			for (int rate : {20, 30, 60, 144, 240}) {
 				menu.item(sub, cmd_fps + rate, std::to_wstring(rate) + L" FPS", MenuMark::radio, settings_.fps == rate);
 			}
 			menu.separator(sub);
-			menu.item(sub, cmd_fullscreen, L"Пауза в полноэкранных приложениях", MenuMark::toggle,
-			          settings_.pause_fullscreen);
-			menu.item(sub, cmd_battery, L"Пауза при работе от батареи", MenuMark::toggle, settings_.pause_battery);
+			menu.item(sub, cmd_fullscreen, tr(Text::fullscreen_pause),
+			          MenuMark::toggle, settings_.pause_fullscreen);
+			menu.item(sub, cmd_battery, tr(Text::battery_pause),
+			          MenuMark::toggle, settings_.pause_battery);
 		}
-		menu.item(root, cmd_capture, L"Эффекты на снимках экрана", MenuMark::toggle, settings_.show_capture,
-		          MenuGlyph::capture);
-		menu.item(root, cmd_autostart, L"Автозапуск с Windows", MenuMark::toggle, SettingsStore::autostart(),
-		          MenuGlyph::startup);
+		menu.item(root, cmd_capture, tr(Text::capture), MenuMark::toggle,
+		          settings_.show_capture, MenuGlyph::capture);
+		menu.item(root, cmd_autostart, tr(Text::startup), MenuMark::toggle,
+		          SettingsStore::autostart(), MenuGlyph::startup);
 		if (updater_) {
 			const auto state = updater_->view();
 			const auto sub =
-			    menu.submenu(root, L"Обновления", MenuGlyph::refresh, state.release ? widen(state.release->tag) : L"");
+				menu.submenu(root, tr(Text::updates), MenuGlyph::refresh,
+			                 state.release ? widen(state.release->tag) : L"");
 			menu.item(sub, cmd_update_check,
-			          state.status == Updater::Status::checking ? L"Проверка…" : L"Проверить обновления",
-			          MenuMark::none, false, MenuGlyph::refresh, L"", !state.busy());
-			menu.item(sub, cmd_update_auto, L"Проверять автоматически", MenuMark::toggle, updater_->automatic());
+			          state.status == Updater::Status::checking
+			              ? tr(Text::checking)
+			              : tr(Text::check_updates),
+			          MenuMark::none, false, MenuGlyph::refresh, L"",
+			          !state.busy());
+			menu.item(sub, cmd_update_auto, tr(Text::automatic_updates),
+			          MenuMark::toggle, updater_->automatic());
 			if (state.release && state.release->installable()) {
-				auto label = L"Обновить до " + widen(state.release->tag);
+				auto label = tr(Text::update_to) + widen(state.release->tag);
 				if (state.status == Updater::Status::downloading) {
-					label = L"Загрузка… " + std::to_wstring(state.progress) + L"%";
+					label = tr(Text::downloading) +
+					        std::to_wstring(state.progress) + L"%";
 				}
 				if (state.status == Updater::Status::ready) {
-					label = L"Перезапуск…";
+					label = tr(Text::restarting);
 				}
 				menu.item(sub, cmd_update_install, label, MenuMark::none, false, MenuGlyph::startup, L"",
 				          !state.busy());
 			} else if (state.release) {
-				menu.item(sub, 0, L"Доступна " + widen(state.release->tag) + L" — скачать вручную", MenuMark::none,
-				          false, MenuGlyph::none, L"", false);
+				menu.item(sub, 0,
+				          tr(Text::available) + widen(state.release->tag) +
+				              tr(Text::download_manually),
+				          MenuMark::none, false, MenuGlyph::none, L"", false);
 			}
 			menu.separator(sub);
-			menu.item(sub, cmd_update_page, L"Релизы на GitHub", MenuMark::none, false, MenuGlyph::file);
+			menu.item(sub, cmd_update_page, tr(Text::releases), MenuMark::none,
+			          false, MenuGlyph::file);
 		}
 		{
-			const auto sub = menu.submenu(root, L"Диагностика", MenuGlyph::tools);
-			menu.item(sub, cmd_retry, L"Пересоздать графику", MenuMark::none, false, MenuGlyph::refresh);
-			menu.item(sub, cmd_diagnostics, L"Записать диагностику", MenuMark::none, false, MenuGlyph::file);
-			menu.item(sub, cmd_folder, L"Папка настроек и журнала", MenuMark::none, false, MenuGlyph::folder);
+			const auto sub =
+				menu.submenu(root, tr(Text::diagnostics), MenuGlyph::tools);
+			menu.item(sub, cmd_retry, tr(Text::rebuild), MenuMark::none, false,
+			          MenuGlyph::refresh);
+			menu.item(sub, cmd_diagnostics, tr(Text::save_report),
+			          MenuMark::none, false, MenuGlyph::file);
+			menu.item(sub, cmd_folder, tr(Text::settings_folder),
+			          MenuMark::none, false, MenuGlyph::folder);
 		}
 		menu.separator(root);
-		menu.item(root, cmd_pause, L"Пауза", MenuMark::action, run_mode_ == RunMode::hidden, MenuGlyph::pause,
-		          run_mode_ == RunMode::hidden ? L"Показать эффекты" : L"Скрыть эффекты");
-		menu.item(root, cmd_stop, L"Остановить", MenuMark::action, run_mode_ == RunMode::stopped, MenuGlyph::stop,
-		          run_mode_ == RunMode::stopped ? L"Продолжить" : L"Заморозить снег");
-		menu.item(root, cmd_exit, L"Выход", MenuMark::none, false, MenuGlyph::exit);
+		menu.item(root, cmd_pause, tr(Text::pause), MenuMark::action,
+		          run_mode_ == RunMode::hidden, MenuGlyph::pause,
+		          run_mode_ == RunMode::hidden ? tr(Text::show_effects)
+		                                       : tr(Text::hide_effects));
+		menu.item(root, cmd_stop, tr(Text::stop), MenuMark::action,
+		          run_mode_ == RunMode::stopped, MenuGlyph::stop,
+		          run_mode_ == RunMode::stopped ? tr(Text::resume)
+		                                        : tr(Text::freeze));
+		menu.item(root, cmd_exit, tr(Text::exit), MenuMark::none, false,
+		          MenuGlyph::exit);
 		SetForegroundWindow(window_);
 		// Item data and GDI resources outlive all callbacks in USER32's modal loop.
 		active_menu_ = root;
@@ -621,6 +682,8 @@ void App::command(UINT id)
 		settings_.height = static_cast<int>(id - cmd_height);
 	} else if (id >= cmd_theme && id < cmd_theme + 3) {
 		settings_.theme = static_cast<Theme>(id - cmd_theme);
+	} else if (id >= cmd_language && id < cmd_language + 3) {
+		settings_.language = static_cast<Language>(id - cmd_language);
 	} else {
 		switch (id) {
 		case cmd_update_check:

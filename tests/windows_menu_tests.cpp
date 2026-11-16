@@ -1,3 +1,4 @@
+#include "localization.hpp"
 #include "tray_menu.hpp"
 #include "win_util.hpp"
 #include <iostream>
@@ -54,19 +55,24 @@ struct Canvas
 	}
 };
 
-void exercise(MenuTheme theme, Canvas &canvas)
+void exercise(MenuTheme theme, Canvas &canvas, Language language)
 {
+	const auto tr = [language](Text text) { return localized(text, language); };
 	TrayMenu menu(GetModuleHandleW(nullptr), {0, 0}, theme);
 	const auto root = menu.handle();
 	menu.header(L"test");
-	menu.section(root, L"ЭФФЕКТЫ");
-	const auto child = menu.submenu(root, L"Снегопад", MenuGlyph::snow, L"Обычный");
-	menu.item(child, 201, L"Слабый", MenuMark::radio, false);
-	menu.item(child, 202, L"Обычный", MenuMark::radio, true);
-	menu.item(root, 114, L"Реакция на курсор", MenuMark::toggle, true, MenuGlyph::cursor);
+	menu.section(root, tr(Text::effects));
+	const auto child = menu.submenu(root, tr(Text::snowfall), MenuGlyph::snow,
+	                                tr(Text::normal));
+	menu.item(child, 201, tr(Text::light), MenuMark::radio, false);
+	menu.item(child, 202, tr(Text::normal), MenuMark::radio, true);
+	menu.item(root, 114, tr(Text::cursor), MenuMark::toggle, true,
+	          MenuGlyph::cursor);
 	menu.separator(root);
-	menu.item(root, 100, L"Пауза", MenuMark::action, true, MenuGlyph::pause, L"Показать эффекты");
-	menu.item(root, 110, L"Выход", MenuMark::none, false, MenuGlyph::exit);
+	menu.item(root, 100, tr(Text::pause), MenuMark::action, true,
+	          MenuGlyph::pause, tr(Text::show_effects));
+	menu.item(root, 110, tr(Text::exit), MenuMark::none, false,
+	          MenuGlyph::exit);
 	require(item(root, 2).hSubMenu == child, "Submenu ownership lost");
 	require(item(child, 1).wID == 202 && (item(child, 1).fState & MFS_CHECKED), "Selected radio command lost");
 	require(item(root, 3).wID == 114 && (item(root, 3).fState & MFS_CHECKED), "Toggle command lost");
@@ -74,8 +80,10 @@ void exercise(MenuTheme theme, Canvas &canvas)
 		require(!(item(root, 3).fType & MFT_OWNERDRAW), "Native fallback still requires custom drawing");
 		return;
 	}
-	const auto mnemonic = menu.character(L'п', root);
-	require(HIWORD(mnemonic) == MNC_EXECUTE && LOWORD(mnemonic) == 5, "Cyrillic keyboard selection failed");
+	const auto mnemonic =
+		menu.character(language == Language::russian ? L'п' : L'p', root);
+	require(HIWORD(mnemonic) == MNC_EXECUTE && LOWORD(mnemonic) == 5,
+	        "Localized keyboard selection failed");
 	require(HIWORD(menu.character(L'?', root)) == MNC_IGNORE, "Unknown key selects a command");
 	const auto old_font = GetCurrentObject(canvas.dc, OBJ_FONT);
 	const auto old_pen = GetCurrentObject(canvas.dc, OBJ_PEN);
@@ -115,13 +123,16 @@ int main()
 		SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 		Canvas canvas;
 		for (auto theme : {MenuTheme::dark, MenuTheme::light, MenuTheme::native}) {
-			exercise(theme, canvas);
+			for (auto language : {Language::russian, Language::english}) {
+				exercise(theme, canvas, language);
+			}
 		}
 		const auto process = GetCurrentProcess();
 		const auto gdi = GetGuiResources(process, GR_GDIOBJECTS);
 		const auto user = GetGuiResources(process, GR_USEROBJECTS);
 		for (int i = 0; i < 100; ++i) {
-			exercise(i % 2 ? MenuTheme::dark : MenuTheme::light, canvas);
+			exercise(i % 2 ? MenuTheme::dark : MenuTheme::light, canvas,
+			         i % 3 ? Language::english : Language::russian);
 		}
 		require(GetGuiResources(process, GR_GDIOBJECTS) <= gdi + 2 &&
 		            GetGuiResources(process, GR_USEROBJECTS) <= user + 2,

@@ -23,6 +23,10 @@ void Settings::normalize() noexcept
 	if (fps != 20 && fps != 30 && fps != 60 && fps != 144 && fps != 240) {
 		fps = 30;
 	}
+	if (language != Language::system && language != Language::russian &&
+	    language != Language::english) {
+		language = Language::system;
+	}
 	if (height != 12 && height != 22 && height != 40) {
 		height = 22;
 	}

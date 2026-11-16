@@ -671,130 +671,87 @@ struct TrayMenu::Impl {
 
 	void glyph(HDC dc, MenuGlyph kind, int x, int y) const noexcept
 	{
-		auto line = [&](int x1, int y1, int x2, int y2) {
-			const int dx = std::abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
-			const int dy = -std::abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
-			int error = dx + dy;
-			for (;;) {
-				RECT dot{x + px(x1), y + px(y1), x + px(x1 + 1),
-				         y + px(y1 + 1)};
-				FillRect(dc, &dot,
-				         static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-				if (x1 == x2 && y1 == y2) {
-					break;
-				}
-				const int twice = 2 * error;
-				if (twice >= dy) {
-					error += dy;
-					x1 += sx;
-				}
-				if (twice <= dx) {
-					error += dx;
-					y1 += sy;
-				}
-			}
-		};
-		auto box = [&](int x1, int y1, int x2, int y2) {
-			line(x1, y1, x2, y1);
-			line(x2, y1, x2, y2);
-			line(x2, y2, x1, y2);
-			line(x1, y2, x1, y1);
-		};
+		// Eight cells per side, each 2 DIP: coarse pixels in the same 16 DIP
+		// slot.
+		std::array<unsigned char, 8> pixels{};
 		switch (kind) {
 		case MenuGlyph::snow:
-			line(8, 1, 8, 16);
-			line(2, 4, 14, 12);
-			line(2, 12, 14, 4);
+			pixels = {0b00010000, 0b01010100, 0b00111000, 0b11111110,
+			          0b00111000, 0b01010100, 0b00010000, 0b00000000};
 			break;
 		case MenuGlyph::wind:
-			line(1, 4, 13, 4);
-			line(3, 8, 16, 8);
-			line(1, 12, 11, 12);
-			line(13, 4, 15, 2);
+			pixels = {0b00000000, 0b00000110, 0b11111100, 0b00000000,
+			          0b00111111, 0b00000000, 0b11111000, 0b00000000};
 			break;
 		case MenuGlyph::layers:
-			box(2, 2, 12, 11);
-			line(6, 13, 15, 13);
-			line(15, 13, 15, 6);
+			pixels = {0b11111000, 0b10001000, 0b10001000, 0b10001110,
+			          0b11111010, 0b00100010, 0b00111110, 0b00000000};
 			break;
 		case MenuGlyph::bank:
-			line(1, 13, 16, 13);
-			line(2, 12, 6, 6);
-			line(6, 6, 10, 10);
-			line(10, 10, 13, 7);
-			line(13, 7, 16, 12);
+			pixels = {0b00000000, 0b00000000, 0b00100000, 0b01110000,
+			          0b11110100, 0b11111110, 0b11111111, 0b00000000};
 			break;
 		case MenuGlyph::cursor:
-			line(4, 1, 4, 13);
-			line(4, 1, 14, 9);
-			line(4, 13, 8, 9);
-			line(8, 9, 14, 9);
-			line(9, 10, 12, 16);
+			pixels = {0b10000000, 0b11000000, 0b11100000, 0b11110000,
+			          0b11111000, 0b11100000, 0b10110000, 0b00011000};
 			break;
 		case MenuGlyph::speed:
-			line(3, 13, 3, 9);
-			line(8, 13, 8, 5);
-			line(13, 13, 13, 1);
-			line(1, 15, 16, 15);
+			pixels = {0b00000000, 0b00000011, 0b00000011, 0b00011011,
+			          0b00011011, 0b11011011, 0b11011011, 0b00000000};
 			break;
 		case MenuGlyph::capture:
-			box(1, 4, 16, 14);
-			box(5, 2, 11, 4);
-			box(6, 7, 11, 12);
+			pixels = {0b00111000, 0b01111110, 0b10000001, 0b10011001,
+			          0b10100101, 0b10011001, 0b10000001, 0b01111110};
 			break;
 		case MenuGlyph::startup:
-			line(3, 13, 13, 3);
-			line(5, 3, 13, 3);
-			line(13, 3, 13, 11);
+			pixels = {0b00000000, 0b00011111, 0b00000011, 0b00000101,
+			          0b00001001, 0b00010001, 0b00100000, 0b01000000};
 			break;
 		case MenuGlyph::tools:
-			box(2, 3, 15, 13);
-			line(5, 6, 8, 8);
-			line(8, 8, 5, 10);
-			line(10, 10, 13, 10);
+			pixels = {0b11111111, 0b10000001, 0b10100001, 0b10010001,
+			          0b10101101, 0b10000001, 0b11111111, 0b00000000};
 			break;
 		case MenuGlyph::pause:
-			box(4, 2, 6, 15);
-			box(11, 2, 13, 15);
+			pixels = {0b00000000, 0b01100110, 0b01100110, 0b01100110,
+			          0b01100110, 0b01100110, 0b01100110, 0b00000000};
 			break;
 		case MenuGlyph::stop:
-			box(3, 3, 14, 14);
+			pixels = {0b00000000, 0b01111110, 0b01111110, 0b01111110,
+			          0b01111110, 0b01111110, 0b01111110, 0b00000000};
 			break;
 		case MenuGlyph::exit:
-			line(7, 2, 3, 2);
-			line(3, 2, 3, 15);
-			line(3, 15, 7, 15);
-			line(7, 8, 16, 8);
-			line(12, 4, 16, 8);
-			line(16, 8, 12, 12);
+			pixels = {0b01110000, 0b01000000, 0b01000100, 0b01000010,
+			          0b01011111, 0b01000010, 0b01000100, 0b01110000};
 			break;
 		case MenuGlyph::clear:
-			line(4, 4, 13, 13);
-			line(13, 4, 4, 13);
+			pixels = {0b00000000, 0b01000010, 0b00100100, 0b00011000,
+			          0b00011000, 0b00100100, 0b01000010, 0b00000000};
 			break;
 		case MenuGlyph::folder:
-			box(1, 5, 16, 14);
-			line(1, 5, 1, 2);
-			line(1, 2, 7, 2);
-			line(7, 2, 10, 5);
+			pixels = {0b01110000, 0b11111000, 0b10001111, 0b10000001,
+			          0b10000001, 0b10000001, 0b11111111, 0b00000000};
 			break;
 		case MenuGlyph::file:
-			box(3, 1, 14, 16);
-			line(6, 6, 11, 6);
-			line(6, 10, 11, 10);
+			pixels = {0b00111100, 0b00100110, 0b00100010, 0b00111010,
+			          0b00100010, 0b00111010, 0b00100010, 0b00111110};
 			break;
 		case MenuGlyph::refresh:
-			line(12, 3, 5, 3);
-			line(5, 3, 2, 6);
-			line(2, 6, 2, 12);
-			line(2, 12, 5, 15);
-			line(5, 15, 12, 15);
-			line(12, 15, 15, 12);
-			line(14, 1, 14, 6);
-			line(9, 6, 14, 6);
+			pixels = {0b00111100, 0b01000010, 0b10000011, 0b10000111,
+			          0b10000000, 0b01000010, 0b00111100, 0b00000000};
 			break;
 		default:
-			break;
+			return;
+		}
+		for (int row = 0; row < 8; ++row) {
+			for (int column = 0; column < 8; ++column) {
+				if ((pixels[row] & (0x80 >> column)) == 0) {
+					continue;
+				}
+				RECT dot{x + px(column * 2), y + px(row * 2),
+				         x + px((column + 1) * 2), y + px((row + 1) * 2)};
+				FillRect(dc, &dot,
+				         static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+			}
 		}
 	}
 };

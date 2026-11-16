@@ -104,6 +104,8 @@ class Landscape {
 	bool foreground_covers(const SurfaceSnapshot &surface) const noexcept;
 	void release(SnowSurface &surface, float fraction, float vx, float vy,
 	             bool emit);
+	void emit_snow(const SnowSurface &surface, float fraction, float vx,
+	               float vy, float left, float right);
 	void update_mask(SnowSurface &surface);
 	std::map<SurfaceId, SnowSurface> surfaces_;
 	std::vector<Blocker> blockers_;

@@ -56,13 +56,14 @@ Rect intersect(Rect a, Rect b) noexcept
 	        std::min(a.right, b.right), std::min(a.bottom, b.bottom)};
 }
 
-void SnowBank::resize(float width, float scale, float height, bool preserve)
+void SnowBank::resize(float width, float scale, float height, bool preserve,
+                      float offset)
 {
 	width = std::clamp(std::isfinite(width) ? width : 1.0f, 1.0f, 65536.0f);
 	scale = std::clamp(std::isfinite(scale) ? scale : 1.0f, 0.5f, 8.0f);
 	height = std::clamp(std::isfinite(height) ? height : 22.0f, 4.0f, 64.0f);
 	if (!heights_.empty() && width == width_ && scale == scale_ &&
-	    height * scale == max_height_) {
+	    height * scale == max_height_ && offset == 0) {
 		return;
 	}
 	const float step = 4 * scale;
@@ -72,8 +73,9 @@ void SnowBank::resize(float width, float scale, float height, bool preserve)
 		for (std::size_t i = 0; i < next.size(); ++i) {
 			next[i] = std::min(
 				height * scale,
-				raw_height_at(std::min(static_cast<float>(i) * step, width) /
-			                  width * width_) *
+				raw_height_at(std::min(static_cast<float>(i) * step, width) *
+			                      scale_ / scale +
+			                  offset) *
 					scale / scale_);
 		}
 	}

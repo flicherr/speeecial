@@ -480,9 +480,12 @@ void bank_bounds_resize_and_melt()
 	require(b.height_at(4) > 0 && b.height_at(96) > 0, "Endpoint deposits feed tapered shoulders");
 	const float middle = b.height_at(50);
 	b.resize(200, 1, 22, true);
-	require(std::abs(b.height_at(100) - middle) < 0.001f, "Resize must preserve the normalized profile");
+	require(std::abs(b.height_at(50) - middle) < 0.001f,
+	        "Resize must preserve snow at its original position");
+	require(b.height_at(150) == 0, "Newly exposed width must be clean");
 	b.resize(400, 2, 22, true);
-	require(std::abs(b.height_at(200) - middle * 2) < 0.01f, "DPI must scale bank height");
+	require(std::abs(b.height_at(100) - middle * 2) < 0.01f,
+	        "DPI must scale bank height");
 	for (int i = 0; i < 1000; ++i) {
 		b.deposit(200, 10);
 	}
@@ -715,9 +718,17 @@ void move_resize_and_shake()
 	sync(world, {w}, s);
 	require(world.emissions().empty(), "Rigid move without shedding");
 	require(world.find(1)->snow.height_at(120) == h, "Moving should preserve the profile");
+	w.rect.bottom += 100;
+	sync(world, {w}, s);
+	require(world.emissions().empty() &&
+	            world.find(1)->snow.height_at(120) == h,
+	        "Changing only window height must leave the roof snow intact");
 	w.rect.right += 240;
 	sync(world, {w}, s);
-	require(std::abs(world.find(1)->snow.height_at(240) - h) < 0.01f, "Window resize should resample snow");
+	require(std::abs(world.find(1)->snow.height_at(120) - h) < 0.01f,
+	        "Window growth must not stretch snow");
+	require(world.find(1)->snow.height_at(360) == 0,
+	        "Window growth exposes a clean span");
 	s.shake = true;
 	w.rect.left += 80;
 	w.rect.right += 80;
@@ -728,6 +739,91 @@ void move_resize_and_shake()
 	w.rect.right += 80;
 	sync(world, {w}, s, {}, 0.05f);
 	require(world.emissions().empty(), "Shedding cooldown");
+}
+
+void resize_edges_crop_and_extend()
+{
+	for (float dpi : {1.0f, 1.5f, 2.0f}) {
+		for (int edge : {-1, 0, 1}) {
+			Landscape world;
+			Settings settings;
+			// Resize must not depend on the shake setting.
+			settings.shake = false;
+			auto w = window();
+			w.rect = {40 * dpi, 100 * dpi, 520 * dpi, 240 * dpi};
+			w.scale = dpi;
+			const auto original = w;
+			sync(world, {w}, settings);
+			seed(world, w.id);
+			world.deposit({w.id, 240 * dpi, 0, 0}, 4);
+			const float h = world.find(w.id)->snow.height_at(240 * dpi);
+			if (edge <= 0) {
+				w.rect.left += 80 * dpi;
+			}
+			if (edge >= 0) {
+				w.rect.right -= 80 * dpi;
+			}
+			sync(world, {w}, settings);
+			const float x = original.rect.left + 240 * dpi - w.rect.left;
+			require(std::abs(world.find(w.id)->snow.height_at(x) - h) < 0.001f,
+			        "Shrinking either edge must preserve the overlapping snow "
+			        "profile");
+			require(!world.emissions().empty(),
+			        "Unsupported snow must fall on resize");
+			for (const auto &e : world.emissions()) {
+				require(e.x < w.rect.left || e.x > w.rect.right,
+				        "Only snow outside the remaining window span may fall");
+				require(e.x >= original.rect.left &&
+				            e.x <= original.rect.right &&
+				            e.y < original.rect.top && e.source == w.id,
+				        "Resize debris uses the old roof and source identity");
+			}
+			world.consume_emissions();
+			sync(world, {w}, settings);
+			require(world.emissions().empty(),
+			        "Duplicate resize must not shed twice");
+			w = original;
+			sync(world, {w}, settings);
+			require(world.emissions().empty(),
+			        "Expanding either edge must not shed snow");
+			require(std::abs(world.find(w.id)->snow.height_at(240 * dpi) - h) <
+			            0.001f,
+			        "Expansion must keep existing snow in place");
+			if (edge <= 0) {
+				require(world.find(w.id)->snow.height_at(40 * dpi) == 0,
+				        "Left expansion must not restore cropped snow");
+			}
+			if (edge >= 0) {
+				require(world.find(w.id)->snow.height_at(440 * dpi) == 0,
+				        "Right expansion must not restore cropped snow");
+			}
+			const float local = (edge <= 0 ? 40 : 440) * dpi;
+			world.deposit({w.id, local, 0, 0}, 2);
+			require(world.find(w.id)->snow.height_at(local) > 0,
+			        "Newly exposed span can accumulate fresh snow");
+		}
+	}
+	for (int mode = 0; mode < 4; ++mode) {
+		Landscape world;
+		Settings settings;
+		settings.collapse = mode != 1;
+		settings.windows = mode != 2;
+		auto w = window();
+		const std::vector<Blocker> blockers =
+			mode == 3 ? std::vector<Blocker>{{{0, 0, 400, 200}, 0}}
+					  : std::vector<Blocker>{};
+		sync(world, {w}, settings, blockers);
+		seed(world, w.id);
+		w.rect.right -= 80;
+		sync(world, {w}, settings, blockers, 0.1f, mode != 0);
+		require(
+			world.emissions().empty(),
+			"Resize respects pause, disabled collapse/windows and occlusion");
+		w.rect.right += 80;
+		sync(world, {w}, settings, blockers);
+		require(world.find(w.id)->snow.height_at(200) == 0,
+		        "Suppressed animation still discards unsupported snow");
+	}
 }
 
 void pause_and_disabled_collapse()
@@ -1067,43 +1163,54 @@ void deterministic_soak()
 int main()
 {
 	const std::pair<const char *, void (*)()> tests[] = {
-	    {"settings_and_limits", settings_and_limits},
-	    {"transient_window_roles", transient_window_roles},
-	    {"window_inventory_recovery", window_inventory_recovery},
-	    {"incomplete_inventory_preserves_banks", incomplete_inventory_preserves_banks},
-	    {"popup_order_stays_above_applications", popup_order_stays_above_applications},
-	    {"popup_order_is_per_monitor", popup_order_is_per_monitor},
-	    {"browser_status_layer_policy", browser_status_layer_policy},
-	    {"shell_taskbar_ordering", shell_taskbar_ordering},
-	    {"taskbar_geometry_visibility", taskbar_geometry_visibility},
-	    {"hidden_taskbar_keeps_profile_without_rendering", hidden_taskbar_keeps_profile_without_rendering},
-	    {"fullscreen_foreground_geometry", fullscreen_foreground_geometry},
-	    {"shell_flyout_focus_cycle", shell_flyout_focus_cycle},
-	    {"foreground_taskbar_transition", foreground_taskbar_transition},
-	    {"bank_bounds_resize_and_melt", bank_bounds_resize_and_melt},
-	    {"curved_bank_shoulders", curved_bank_shoulders},
-	    {"native_popups_do_not_cut_snow", native_popups_do_not_cut_snow},
-	    {"nearest_surface_and_occlusion", nearest_surface_and_occlusion},
-	    {"swept_diagonal_collision", swept_diagonal_collision},
-	    {"minimize_uses_old_position_once", minimize_uses_old_position_once},
-	    {"close_and_duplicate_events", close_and_duplicate_events},
-	    {"hidden_desktop_preserves_snow", hidden_desktop_preserves_snow},
-	    {"hide_before_close_and_shell_restart", hide_before_close_and_shell_restart},
-	    {"overlaps_clip_bursts_and_union", overlaps_clip_bursts_and_union},
-	    {"move_resize_and_shake", move_resize_and_shake},
-	    {"pause_and_disabled_collapse", pause_and_disabled_collapse},
-	    {"fragments_fall_to_taskbar", fragments_fall_to_taskbar},
-	    {"bounded_fragment_pool_and_source_immunity", bounded_fragment_pool_and_source_immunity},
-	    {"fragments_cross_monitors", fragments_cross_monitors},
-	    {"resume_time_and_cursor", resume_time_and_cursor},
-	    {"stable_identity_and_limits", stable_identity_and_limits},
-	    {"nested_windows_receive_continuous_snow", nested_windows_receive_continuous_snow},
-	    {"maximized_window_has_no_bank", maximized_window_has_no_bank},
-	    {"clips_follow_geometry_without_changing_snow", clips_follow_geometry_without_changing_snow},
-	    {"rectangular_clip_mask_matches_occlusion", rectangular_clip_mask_matches_occlusion},
-	    {"avalanche_is_irregular_and_rotates", avalanche_is_irregular_and_rotates},
-	    {"cursor_sweep_is_visible_and_can_lift_snow", cursor_sweep_is_visible_and_can_lift_snow},
-	    {"deterministic_soak", deterministic_soak}};
+		{"settings_and_limits", settings_and_limits},
+		{"transient_window_roles", transient_window_roles},
+		{"window_inventory_recovery", window_inventory_recovery},
+		{"incomplete_inventory_preserves_banks",
+	     incomplete_inventory_preserves_banks},
+		{"popup_order_stays_above_applications",
+	     popup_order_stays_above_applications},
+		{"popup_order_is_per_monitor", popup_order_is_per_monitor},
+		{"browser_status_layer_policy", browser_status_layer_policy},
+		{"shell_taskbar_ordering", shell_taskbar_ordering},
+		{"taskbar_geometry_visibility", taskbar_geometry_visibility},
+		{"hidden_taskbar_keeps_profile_without_rendering",
+	     hidden_taskbar_keeps_profile_without_rendering},
+		{"fullscreen_foreground_geometry", fullscreen_foreground_geometry},
+		{"shell_flyout_focus_cycle", shell_flyout_focus_cycle},
+		{"foreground_taskbar_transition", foreground_taskbar_transition},
+		{"bank_bounds_resize_and_melt", bank_bounds_resize_and_melt},
+		{"curved_bank_shoulders", curved_bank_shoulders},
+		{"native_popups_do_not_cut_snow", native_popups_do_not_cut_snow},
+		{"nearest_surface_and_occlusion", nearest_surface_and_occlusion},
+		{"swept_diagonal_collision", swept_diagonal_collision},
+		{"minimize_uses_old_position_once", minimize_uses_old_position_once},
+		{"close_and_duplicate_events", close_and_duplicate_events},
+		{"hidden_desktop_preserves_snow", hidden_desktop_preserves_snow},
+		{"hide_before_close_and_shell_restart",
+	     hide_before_close_and_shell_restart},
+		{"overlaps_clip_bursts_and_union", overlaps_clip_bursts_and_union},
+		{"move_resize_and_shake", move_resize_and_shake},
+		{"resize_edges_crop_and_extend", resize_edges_crop_and_extend},
+		{"pause_and_disabled_collapse", pause_and_disabled_collapse},
+		{"fragments_fall_to_taskbar", fragments_fall_to_taskbar},
+		{"bounded_fragment_pool_and_source_immunity",
+	     bounded_fragment_pool_and_source_immunity},
+		{"fragments_cross_monitors", fragments_cross_monitors},
+		{"resume_time_and_cursor", resume_time_and_cursor},
+		{"stable_identity_and_limits", stable_identity_and_limits},
+		{"nested_windows_receive_continuous_snow",
+	     nested_windows_receive_continuous_snow},
+		{"maximized_window_has_no_bank", maximized_window_has_no_bank},
+		{"clips_follow_geometry_without_changing_snow",
+	     clips_follow_geometry_without_changing_snow},
+		{"rectangular_clip_mask_matches_occlusion",
+	     rectangular_clip_mask_matches_occlusion},
+		{"avalanche_is_irregular_and_rotates",
+	     avalanche_is_irregular_and_rotates},
+		{"cursor_sweep_is_visible_and_can_lift_snow",
+	     cursor_sweep_is_visible_and_can_lift_snow},
+		{"deterministic_soak", deterministic_soak}};
 	for (auto [name, test] : tests) {
 		try {
 			test();

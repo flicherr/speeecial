@@ -88,7 +88,7 @@ cmake --preset ninja-release -DCMAKE_CXX_COMPILER=clang-cl
 
 ## Тесты
 
-По умолчанию `BUILD_TESTING=ON`: собирается `snow_core_tests`, содержащий 37 групп сценариев модели снега. Windows-тесты включаются отдельно.
+По умолчанию `BUILD_TESTING=ON`: собирается `snow_core_tests`, содержащий 38 групп сценариев модели снега. Windows-тесты включаются отдельно.
 
 ### Меню
 

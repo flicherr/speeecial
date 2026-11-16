@@ -201,18 +201,30 @@ void Landscape::release(SnowSurface &surface, float fraction, float vx,
 		return;
 	}
 	if (emit) {
+		emit_snow(surface, fraction, vx, vy, 0, surface.snow.width());
+	}
+	surface.snow.retain(1 - fraction);
+}
+
+void Landscape::emit_snow(const SnowSurface &surface, float fraction, float vx,
+                          float vy, float left, float right)
+{
+	left = std::clamp(left, 0.0f, surface.snow.width());
+	right = std::clamp(right, 0.0f, surface.snow.width());
+	if (right > left && !surface.snow.empty()) {
 		if (emissions_.capacity() < max_debris) {
 			emissions_.reserve(max_debris);
 		}
 		const auto &s = surface.snapshot;
 		const auto count = std::clamp(
-			static_cast<int>(surface.snow.width() / (18 * s.scale)), 6, 120);
+			static_cast<int>((right - left) / (18 * s.scale)), 6, 120);
 		auto random = [&](float lo, float hi) {
 			return std::uniform_real_distribution<float>(lo, hi)(random_);
 		};
 		for (int i = 0; i < count && emissions_.size() < max_debris; ++i) {
-			const float x = (static_cast<float>(i) + random(0.05f, 0.95f)) /
-			                static_cast<float>(count) * surface.snow.width();
+			const float x =
+				left + (static_cast<float>(i) + random(0.05f, 0.95f)) /
+						   static_cast<float>(count) * (right - left);
 			const float h = surface.snow.height_at(x);
 			if (h < 0.15f) {
 				continue;
@@ -232,7 +244,6 @@ void Landscape::release(SnowSurface &surface, float fraction, float vx,
 			     s.id, random(0, 0.10f)});
 		}
 	}
-	surface.snow.retain(1 - fraction);
 }
 
 void Landscape::synchronize(std::span<const SurfaceSnapshot> snapshots,
@@ -310,8 +321,21 @@ void Landscape::synchronize(std::span<const SurfaceSnapshot> snapshots,
 					old.last_shed = clock_;
 				}
 			}
+			// A rigid move carries the snow with the window. A width change at
+			// the same DPI keeps the overlapping span in desktop coordinates,
+			// so either resize edge can cut off snow or expose a clean area.
+			const bool resized = s.scale == old.snapshot.scale &&
+			                     s.rect.width() != old.snapshot.rect.width();
+			const float offset =
+				resized ? s.rect.left - old.snapshot.rect.left : 0;
+			if (resized && s.state == SurfaceState::visible && s.accepts_snow &&
+			    can_detach(old)) {
+				emit_snow(old, 1, 0, 25 * s.scale, 0, offset);
+				emit_snow(old, 1, 0, 25 * s.scale, offset + s.rect.width(),
+				          old.snow.width());
+			}
 			old.snow.resize(s.rect.width(), s.scale,
-			                static_cast<float>(settings.height), true);
+			                static_cast<float>(settings.height), true, offset);
 			old.snapshot = s;
 		}
 		it->second.seen = revision_;

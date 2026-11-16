@@ -78,8 +78,10 @@ struct Cursor {
 
 class SnowBank {
   public:
+	// Preserve logical distances across DPI changes. offset is the new left
+	// edge in the old profile's pixels; newly exposed samples stay empty.
 	void resize(float width, float scale, float height = 22,
-	            bool preserve = false);
+	            bool preserve = false, float offset = 0);
 	void clear() noexcept;
 	void deposit(float x, float amount) noexcept;
 	void melt(float dt) noexcept;

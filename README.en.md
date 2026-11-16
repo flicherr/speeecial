@@ -10,7 +10,7 @@ Snowflakes drift across your screen, and snowbanks grow along the top edges of w
 
 The app lives in the system tray, with every setting available from one compact menu. Snow overlays let clicks pass through and keep your windows usable.
 
-![speeecial menu in light and dark themes](docs/menu-preview.png)
+![English speeecial menu in light and dark themes](docs/menu-preview.en.png)
 
 ## Features
 

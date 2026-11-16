@@ -31,7 +31,7 @@ template <class F> void rejects(F action, const char *description)
 
 std::string fixture()
 {
-	return R"({"tag_name":"v1.0.11","draft":false,"prerelease":false,"body":"Snow \u2744 \ud83c\udf28\ufe0f","assets":[{"name":"speeecial-windows-x64.exe","state":"uploaded","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":4096,"browser_download_url":"https://github.com/flicherr/speeecial-snow-desktop/releases/download/v1.0.11/speeecial-windows-x64.exe"}]})";
+	return R"({"tag_name":"v1.0.12","draft":false,"prerelease":false,"body":"Snow \u2744 \ud83c\udf28\ufe0f","assets":[{"name":"speeecial-windows-x64.exe","state":"uploaded","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":4096,"browser_download_url":"https://github.com/flicherr/speeecial-snow-desktop/releases/download/v1.0.12/speeecial-windows-x64.exe"}]})";
 }
 
 std::string replace(std::string text, std::string_view before,
@@ -58,8 +58,8 @@ std::string file(const char *name)
 int main()
 {
 	try {
-		require(version("v1.0.10") == Version{1, 0, 10}, "v prefix");
-		require(version("1.0.10") > version("1.0.9"), "numeric comparison");
+		require(version("v1.0.11") == Version{1, 0, 11}, "v prefix");
+		require(version("1.0.11") > version("1.0.9"), "numeric comparison");
 		require(version("1.10.0") > version("1.9.999"), "minor comparison");
 		for (auto text :
 		     {"", "v", "1.2", "1.2.3.4", "1.2.3-beta", "1.2.3+build", "01.2.3",
@@ -70,7 +70,7 @@ int main()
 		require(release && release->installable() && release->size == 4096 &&
 		            release->sha256.size() == 64,
 		        "valid release");
-		require(!parse_release(fixture(), "1.0.11"), "equal version");
+		require(!parse_release(fixture(), "1.0.12"), "equal version");
 		require(!parse_release(fixture(), "2.0.0"), "no downgrade");
 		require(!parse_release(replace(fixture(), "\"prerelease\":false",
 		                               "\"prerelease\":true"),
@@ -85,7 +85,7 @@ int main()
 			require(result && !result->installable(), "manual-only release");
 		};
 		manual(replace(fixture(), "\"name\":\"speeecial-windows-x64.exe\"",
-		               "\"name\":\"speeecial-1.0.11-windows-x64.zip\""));
+		               "\"name\":\"speeecial-1.0.12-windows-x64.zip\""));
 		manual(replace(fixture(), "sha256:", "sha512:"));
 		manual(replace(fixture(),
 		               "\"sha256:"
@@ -101,7 +101,7 @@ int main()
 		     {"http://github.com/", "https://github.com.attacker.example/"}) {
 			manual(replace(fixture(), "https://github.com/", host));
 		}
-		manual(replace(fixture(), "/download/v1.0.11/", "/download/v2.0.0/"));
+		manual(replace(fixture(), "/download/v1.0.12/", "/download/v2.0.0/"));
 		manual(replace(fixture(), "/flicherr/", "/other/"));
 		manual(replace(fixture(), "\"uploaded\"", "\"new\""));
 		for (auto text : {"", "null", "[]", "{}", "{broken}",

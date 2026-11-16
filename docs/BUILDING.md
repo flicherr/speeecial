@@ -122,8 +122,6 @@ cmake --build build/native -j 2
 ctest --test-dir build/native --output-on-failure
 ```
 
-Результаты проверок конкретной версии и команды дополнительной Windows-кросс-сборки приведены в [BUILD_REPORT.md](BUILD_REPORT.md). Сценарии проверки интерфейса и оболочки — в [VALIDATION.md](VALIDATION.md).
-
 ## Ресурсы и версия
 
 - `resources/snowdesk.rc` подключает иконку, манифест и сведения о версии.

@@ -71,7 +71,7 @@ Settings are saved automatically to `%LOCALAPPDATA%\SnowDesk\settings.ini`. Open
 
 Open **Updates → Check for updates** (`Обновления → Проверить обновления`). If a newer version is available, an **Update to …** (`Обновить до …`) command appears: the app downloads the file, verifies it, and restarts. Automatic checks are enabled by default and run at startup at most once a day; installation is never automatic. Only stable releases are considered.
 
-Built-in installation requires a writable folder containing the EXE. If the release has no suitable file or Windows prevents replacement, use **Updates → Releases on GitHub** (`Обновления → Релизы на GitHub`): exit the app, download the new version, and replace the EXE manually. Versions older than 1.0.10 require a one-time manual update.
+Built-in installation requires a writable folder containing the EXE. If the release has no suitable file or Windows prevents replacement, use **Updates → Releases on GitHub** (`Обновления → Релизы на GitHub`): exit the app, download the new version, and replace the EXE manually. Versions 1.0.9 and earlier require a one-time manual update.
 
 Your settings are preserved; snowbank shapes are not saved between sessions. The automatic update check setting is stored separately in `%LOCALAPPDATA%\SnowDesk\updates.ini`. If startup with Windows is enabled, the app updates the registered path to its current EXE. If an updated version fails to start successfully, the updater can restore the previous EXE.
 

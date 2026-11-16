@@ -445,6 +445,25 @@ void Landscape::clear_snow() noexcept
 	emissions_.clear();
 }
 
+void Landscape::drop_snow(const Settings &settings)
+{
+	// Manual clearing is independent of the automatic collapse setting.
+	// Hidden surfaces are cleared without creating snow on another desktop.
+	emissions_.clear();
+	for (auto &[id, s] : surfaces_) {
+		(void)id;
+		if (s.enabled(settings)) {
+			emit_snow(s, 1, 0, 25 * s.snapshot.scale, 0, s.snow.width());
+		}
+		s.snow.clear();
+	}
+	for (auto &e : emissions_) {
+		e.fall_through = true;
+		e.vy = std::max(e.vy, 25.0f);
+		e.delay = 0;
+	}
+}
+
 bool Landscape::needs_melting(const Settings &settings) const noexcept
 {
 	if (!settings.melt) {

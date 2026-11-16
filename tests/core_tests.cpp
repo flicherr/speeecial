@@ -877,6 +877,77 @@ void fragments_fall_to_taskbar()
 	require(sim.active_debris() == 0, "Fragments must retire");
 }
 
+void clear_snow_falls_offscreen()
+{
+	Landscape world;
+	Settings settings;
+	settings.density = Density::off;
+	settings.wind = Wind::calm;
+	settings.collapse = false;
+	auto upper = window();
+	auto lower = window(2, 200);
+	auto hidden = window(3, 50);
+	hidden.state = SurfaceState::suspended;
+	sync(world, {upper, lower, hidden, floor_surface()}, settings);
+	for (SurfaceId id : {1, 2, 3, 100}) {
+		seed(world, id);
+	}
+	Simulation sim(42);
+	sim.configure({-1024, 0, 1024, 320}, 1, 0, 256);
+	sim.emit({100, 50, 0, -100, 5, 2, upper.id});
+	sim.drop_debris();
+	require(sim.active_debris() == 1 && sim.debris()[0].fall_through &&
+	            sim.debris()[0].vy > 0,
+	        "Clearing must keep existing debris and send it downwards");
+	world.drop_snow(settings);
+	bool upper_emitted = false, lower_emitted = false, bar_emitted = false;
+	for (const auto &e : world.emissions()) {
+		require(e.fall_through && e.vy > 0 && e.delay == 0,
+		        "Cleared banks must fall immediately without landing");
+		require(e.source != hidden.id,
+		        "Clearing a hidden desktop must not emit foreground snow");
+		upper_emitted |= e.source == upper.id;
+		lower_emitted |= e.source == lower.id;
+		bar_emitted |= e.source == 100;
+		sim.emit(e);
+	}
+	require(upper_emitted && lower_emitted && bar_emitted,
+	        "Manual clearing animates window and taskbar banks even with "
+	        "collapse off");
+	world.consume_emissions();
+	const auto active = sim.active_debris();
+	require(active > 1, "Clearing with snowfall off must still animate");
+	world.drop_snow(settings);
+	sim.drop_debris();
+	require(world.emissions().empty() && sim.active_debris() == active,
+	        "Repeated clearing must not duplicate or erase falling snow");
+	Simulation *destinations[]{&sim};
+	for (int frame = 0; frame < 240; ++frame) {
+		sim.update(1.0f / 30, settings, world, {});
+		sim.transfer_outside(destinations);
+		for (const auto &[id, surface] : world.surfaces()) {
+			(void)id;
+			require(surface.snow.empty(),
+			        "Cleared snow must not settle on windows or the taskbar");
+		}
+	}
+	require(sim.active_debris() == 0, "Cleared snow must finish falling");
+	for (const auto &p : sim.debris()) {
+		if (p.generation != 0) {
+			require(p.y > sim.bounds().bottom,
+			        "Cleared fragments must leave through the bottom of the "
+			        "screen");
+		}
+	}
+	world.deposit({upper.id, 120, 0, 0}, 2);
+	require(!world.find(upper.id)->snow.empty(),
+	        "Fresh snow can accumulate after clearing");
+	sync(world, {upper}, settings, {{{0, 0, 320, 320}, 0}});
+	world.drop_snow(settings);
+	require(world.emissions().empty() && world.find(upper.id)->snow.empty(),
+	        "Covered snow clears without bursting through foreground windows");
+}
+
 void bounded_fragment_pool_and_source_immunity()
 {
 	Landscape world;
@@ -900,7 +971,7 @@ void fragments_cross_monitors()
 	upper.configure({-200, -200, 0, 0}, 1, 0, 8);
 	lower.configure({-200, 0, 0, 200}, 1.5f, 0, 8);
 	Simulation *destinations[]{&upper, &lower};
-	upper.emit({-100, -1, 10, 100, 5, 2, 42});
+	upper.emit({-100, -1, 10, 100, 5, 2, 42, 0, true});
 	upper.update(0.03f, {}, world, {});
 	lower.update(0.03f, {}, world, {});
 	const auto crossing = upper.debris()[0];
@@ -908,9 +979,11 @@ void fragments_cross_monitors()
 	lower.transfer_outside(destinations);
 	require(upper.active_debris() == 0 && lower.active_debris() == 1, "Fragment must cross the monitor seam once");
 	const auto &landed = lower.debris()[0];
-	require(landed.x == crossing.x && landed.y == crossing.y && landed.age == crossing.age && landed.source == 42 &&
-	            landed.vy == crossing.vy,
-	        "Transfer must preserve position, age, velocity and source immunity");
+	require(
+		landed.x == crossing.x && landed.y == crossing.y &&
+			landed.age == crossing.age && landed.source == 42 &&
+			landed.vy == crossing.vy && landed.fall_through,
+		"Transfer must preserve position, age, velocity and source immunity");
 	lower.clear_debris();
 	upper.emit({-100, -1, 0, 200, 3, 1, 42});
 	upper.update(0.1f, {}, world, {});
@@ -1200,6 +1273,7 @@ int main()
 		{"resize_edges_crop_and_extend", resize_edges_crop_and_extend},
 		{"pause_and_disabled_collapse", pause_and_disabled_collapse},
 		{"fragments_fall_to_taskbar", fragments_fall_to_taskbar},
+		{"clear_snow_falls_offscreen", clear_snow_falls_offscreen},
 		{"bounded_fragment_pool_and_source_immunity",
 	     bounded_fragment_pool_and_source_immunity},
 		{"fragments_cross_monitors", fragments_cross_monitors},

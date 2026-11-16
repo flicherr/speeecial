@@ -637,9 +637,10 @@ void App::command(UINT id)
 			changed = false;
 			break;
 		case cmd_clear:
-			landscape_.clear_snow();
 			if (renderer_) {
 				renderer_->clear_snow();
+			} else {
+				landscape_.clear_snow();
 			}
 			changed = false;
 			break;

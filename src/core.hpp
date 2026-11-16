@@ -63,12 +63,14 @@ struct Debris {
 	bool active = false;
 	float angle = 0, spin = 0, aspect = 1, delay = 0;
 	unsigned sprite = 0;
+	bool fall_through = false;
 };
 
 struct Emission {
 	float x{}, y{}, vx{}, vy{}, size{}, mass{};
 	SurfaceId source{};
 	float delay = 0;
+	bool fall_through = false;
 };
 
 struct Cursor {
@@ -129,6 +131,7 @@ class Simulation {
 	Debris *emit(const Emission &emission) noexcept;
 	void transfer_outside(std::span<Simulation *> destinations) noexcept;
 	void clear_debris() noexcept;
+	void drop_debris() noexcept;
 
 	std::span<const Particle> particles() const noexcept
 	{

@@ -244,6 +244,7 @@ Debris *Simulation::emit(const Emission &e) noexcept
 	debris_[slot].aspect = random(0.6f, 1.45f);
 	debris_[slot].sprite = random_() % 3;
 	debris_[slot].delay = std::clamp(e.delay, 0.0f, 0.15f);
+	debris_[slot].fall_through = e.fall_through;
 	if (generation_ == 0) {
 		++generation_;
 	}
@@ -284,6 +285,17 @@ void Simulation::clear_debris() noexcept
 {
 	for (auto &p : debris_) {
 		p.active = false;
+	}
+}
+
+void Simulation::drop_debris() noexcept
+{
+	for (auto &p : debris_) {
+		if (p.active) {
+			p.fall_through = true;
+			p.vy = std::max(p.vy, 25 * scale_);
+			p.delay = 0;
+		}
 	}
 }
 
@@ -395,14 +407,19 @@ void Simulation::update(float dt, const Settings &settings,
 		p.vy += (420 * scale_ - p.vy * drag * 0.25f) * dt;
 		p.angle = std::fmod(p.angle + p.spin * dt, 360.0f);
 		p.spin *= std::exp(-0.18f * dt);
-		cursor_force(p.x, p.y, cursor, scale_, dt, p.vx, p.vy);
+		if (!p.fall_through) {
+			cursor_force(p.x, p.y, cursor, scale_, dt, p.vx, p.vy);
+		}
 		p.x += p.vx * dt;
 		p.y += p.vy * dt;
-		if (auto hit = landscape.collide(old_x, old_y, p.x, p.y, settings,
-		                                 p.age < 0.35f ? p.source : 0)) {
-			landscape.deposit(*hit, p.mass);
-			p.active = false;
-			continue;
+		// Explicit clearing sends snow off the desktop, past every support.
+		if (!p.fall_through) {
+			if (auto hit = landscape.collide(old_x, old_y, p.x, p.y, settings,
+			                                 p.age < 0.35f ? p.source : 0)) {
+				landscape.deposit(*hit, p.mass);
+				p.active = false;
+				continue;
+			}
 		}
 		if (p.age > 12) {
 			p.active = false;

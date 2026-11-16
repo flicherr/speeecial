@@ -93,6 +93,7 @@ class Landscape {
 	}
 
 	void clear_snow() noexcept;
+	void drop_snow(const Settings &settings);
 	bool needs_melting(const Settings &settings) const noexcept;
 
 	std::uint64_t revision() const noexcept

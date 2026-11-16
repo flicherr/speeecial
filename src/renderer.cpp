@@ -1285,9 +1285,12 @@ void Renderer::tick(float dt)
 
 void Renderer::clear_snow()
 {
-	impl_->landscape.clear_snow();
+	impl_->landscape.drop_snow(impl_->settings);
 	for (auto &s : impl_->monitors) {
-		s->simulation.clear_debris();
+		s->simulation.drop_debris();
+	}
+	impl_->emit_pending();
+	for (auto &s : impl_->monitors) {
 		impl_->move_particles(*s);
 	}
 	impl_->refresh_banks(true);

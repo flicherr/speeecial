@@ -16,7 +16,7 @@ void Settings::normalize() noexcept
 	if (layer != Layer::front && layer != Layer::behind) {
 		layer = Layer::front;
 	}
-	if (fps != 20 && fps != 30 && fps != 60) {
+	if (fps != 20 && fps != 30 && fps != 60 && fps != 144 && fps != 240) {
 		fps = 30;
 	}
 	if (height != 12 && height != 22 && height != 40) {

@@ -234,6 +234,12 @@ void settings_and_limits()
 	require(s.density == Density::normal && s.wind == Wind::gentle && s.layer == Layer::front && s.height == 22 &&
 	            s.fps == 30,
 	        "Invalid settings");
+	for (int rate : {20, 30, 60, 144, 240}) {
+		s.fps = rate;
+		s.normalize();
+		require(s.fps == rate,
+		        "Supported FPS must survive settings normalization");
+	}
 	for (std::size_t n = 1; n < 100; ++n) {
 		require(particles_per_monitor(Density::heavy, n) * n <= max_particles, "Global snow budget");
 	}

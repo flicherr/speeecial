@@ -432,7 +432,7 @@ void App::show_menu()
 		{
 			const auto sub =
 			    menu.submenu(root, L"Производительность", MenuGlyph::speed, std::to_wstring(settings_.fps) + L" FPS");
-			for (int rate : {20, 30, 60}) {
+			for (int rate : {20, 30, 60, 144, 240}) {
 				menu.item(sub, cmd_fps + rate, std::to_wstring(rate) + L" FPS", MenuMark::radio, settings_.fps == rate);
 			}
 			menu.separator(sub);
@@ -598,11 +598,13 @@ void App::command(UINT id)
 		settings_.density = static_cast<Density>(id - cmd_density);
 	} else if (id >= cmd_wind && id < cmd_wind + 3) {
 		settings_.wind = static_cast<Wind>(id - cmd_wind);
-	} else if (id == cmd_fps + 20 || id == cmd_fps + 30 || id == cmd_fps + 60) {
+	} else if (id == cmd_fps + 20 || id == cmd_fps + 30 || id == cmd_fps + 60 ||
+	           id == cmd_fps + 144 || id == cmd_fps + 240) {
 		settings_.fps = static_cast<int>(id - cmd_fps);
 	} else if (id == cmd_layer || id == cmd_layer + 1) {
 		settings_.layer = static_cast<Layer>(id - cmd_layer);
-	} else if (id == cmd_height + 12 || id == cmd_height + 22 || id == cmd_height + 40) {
+	} else if (id == cmd_height + 12 || id == cmd_height + 22 ||
+	           id == cmd_height + 40) {
 		settings_.height = static_cast<int>(id - cmd_height);
 	} else {
 		switch (id) {

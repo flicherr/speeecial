@@ -4,7 +4,7 @@
 <h1 align="center">speeecial</h1>
 <p align="center"><strong>snow desktop</strong> · a little winter on your Windows desktop</p>
 
-<p align="center"><a href="README.md">Русский</a> · <strong>English</strong></p>
+<p align="center"><a href="README.md">Russian</a> · <strong>English</strong></p>
 
 Snowflakes drift across your screen, and snowbanks grow along the top edges of windows and the taskbar. Minimize a window and its snow falls away. Move it sharply to shake off part of its snow cap.
 
@@ -32,26 +32,26 @@ Snow effects work offline. An internet connection is only needed to check for an
 2. Find the ice star in the system tray. Windows may place it in the hidden icons area.
 3. Left-click or right-click the icon and choose your effects.
 
-To try it out, select **Snowfall → Blizzard** (`Снегопад → Метель`) and open a regular window with some space above it. Let snow accumulate, then minimize the window.
+To try it out, select **Snowfall → Blizzard** and open a regular window with some space above it. Let snow accumulate, then minimize the window.
 
 ## Controls
 
-The menu supports English and Russian. Choose **Language / Язык** to follow the system language (default) or select Russian or English explicitly. Your choice is saved between sessions. Russian labels are included below for reference.
+The menu supports English and Russian. Choose **Language** to follow the system language (default) or select Russian or English explicitly. Your choice is saved between sessions.
 
 | Section | What you can adjust |
 |---|---|
-| **Snowfall (Снегопад)** | Stop new snowflakes or choose light, normal, or blizzard snowfall |
-| **Placement (Расположение)** | Show falling snow in front of windows or behind them |
-| **Wind (Ветер)** | Choose calm, gentle, or gusty wind |
-| **Snowbanks (Сугробы)** | Enable snow on windows and the taskbar, collapsing, shaking, and melting; choose the depth or clear the snow |
-| **Cursor interaction (Реакция на курсор)** | Deflect snowflakes with pointer movement |
-| **Performance (Производительность)** | Limit FPS and enable automatic pauses |
-| **Theme (Тема)** | System (default), light, or dark menu theme |
-| **Language / Язык** | System (default), Russian, or English |
-| **Effects in screenshots (Эффекты на снимках экрана)** | Control snow visibility in compatible capture tools |
-| **Start with Windows (Автозапуск с Windows)** | Launch the app when you sign in |
-| **Updates (Обновления)** | Check for a new version, enable automatic checks, install an update, or open the releases page |
-| **Diagnostics (Диагностика)** | Restore graphics, save a report, or open the settings and log folder |
+| **Snowfall** | Stop new snowflakes or choose light, normal, or blizzard snowfall |
+| **Placement** | Show falling snow in front of windows or behind them |
+| **Wind** | Choose calm, gentle, or gusty wind |
+| **Snowbanks** | Enable snow on windows and the taskbar, collapsing, shaking, and melting; choose the depth or clear the snow |
+| **Cursor interaction** | Deflect snowflakes with pointer movement |
+| **Performance** | Limit FPS and enable automatic pauses |
+| **Theme** | System (default), light, or dark menu theme |
+| **Language** | System (default), Russian, or English |
+| **Effects in screenshots** | Control snow visibility in compatible capture tools |
+| **Start with Windows** | Launch the app when you sign in |
+| **Updates** | Check for a new version, enable automatic checks, install an update, or open the releases page |
+| **Diagnostics** | Restore graphics, save a report, or open the settings and log folder |
 
 Hover over the menu header to see the particle count and selected FPS limit.
 
@@ -59,19 +59,19 @@ Hover over the menu header to see the particle count and selected FPS limit.
 
 | Action | Result |
 |---|---|
-| **Pause (Пауза)** | Hides effects while snow movement, accumulation, and melting continue |
-| **Stop (Остановить)** | Hides effects and freezes the simulation, preserving accumulated snow |
-| **Exit (Выход)** | Closes the app completely |
+| **Pause** | Hides effects while snow movement, accumulation, and melting continue |
+| **Stop** | Hides effects and freezes the simulation, preserving accumulated snow |
+| **Exit** | Closes the app completely |
 
-Select the active mode again to resume normal operation. To remove only accumulated snow, use **Snowbanks → Clear all snow** (`Сугробы → Очистить весь снег`).
+Select the active mode again to resume normal operation. To remove only accumulated snow, use **Snowbanks → Clear all snow**.
 
 ## Settings and updates
 
-Settings are saved automatically to `%LOCALAPPDATA%\SnowDesk\settings.ini`. Open the folder through **Diagnostics → Settings and log folder** (`Диагностика → Папка настроек и журнала`). The legacy folder name is retained for compatibility with earlier versions.
+Settings are saved automatically to `%LOCALAPPDATA%\SnowDesk\settings.ini`. Open the folder through **Diagnostics → Settings and log folder**. The legacy folder name is retained for compatibility with earlier versions.
 
-Open **Updates → Check for updates** (`Обновления → Проверить обновления`). If a newer version is available, an **Update to …** (`Обновить до …`) command appears: the app downloads the file, verifies it, and restarts. Automatic checks are enabled by default and run at startup at most once a day; installation is never automatic. Only stable releases are considered.
+Open **Updates → Check for updates**. If a newer version is available, an **Update to …** command appears: the app downloads the file, verifies it, and restarts. Automatic checks are enabled by default and run at startup at most once a day; installation is never automatic. Only stable releases are considered.
 
-Built-in installation requires a writable folder containing the EXE. If the release has no suitable file or Windows prevents replacement, use **Updates → Releases on GitHub** (`Обновления → Релизы на GitHub`): exit the app, download the new version, and replace the EXE manually. Versions 1.0.9 and earlier require a one-time manual update.
+Built-in installation requires a writable folder containing the EXE. If the release has no suitable file or Windows prevents replacement, use **Updates → Releases on GitHub**: exit the app, download the new version, and replace the EXE manually. Versions 1.0.9 and earlier require a one-time manual update.
 
 Your settings are preserved; snowbank shapes are not saved between sessions. The automatic update check setting is stored separately in `%LOCALAPPDATA%\SnowDesk\updates.ini`. If startup with Windows is enabled, the app updates the registered path to its current EXE. If an updated version fails to start successfully, the updater can restore the previous EXE.
 
@@ -85,7 +85,7 @@ To uninstall, disable startup with Windows, exit the app, and delete the EXE. Yo
 - The taskbar snowbank hides with the taskbar. Accumulation is designed for a horizontal taskbar; third-party shells and custom taskbars are not specifically supported.
 - Hiding effects from captures depends on the capture method. It does not guarantee that snow will be excluded from every screenshot or recording.
 
-If effects stop appearing, check manual and automatic pauses. Use **Diagnostics → Recreate graphics** (`Диагностика → Пересоздать графику`) to restore rendering. When reporting an error, you can attach a report from the same menu section.
+If effects stop appearing, check manual and automatic pauses. Use **Diagnostics → Recreate graphics** to restore rendering. When reporting an error, you can attach a report from the same menu section.
 
 ---
 

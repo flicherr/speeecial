@@ -89,6 +89,15 @@ struct Entry {
 	UINT menu_position{};
 	int minimum{}, maximum{}, position{};
 	std::function<void(int)> changed;
+	std::vector<std::wstring> values;
+	int value_width = 0;
+
+	std::wstring slider_value(int slider_position) const
+	{
+		return values.empty() ? std::to_wstring(slider_position) + L" px"
+		                      : values[static_cast<std::size_t>(
+									slider_position - minimum)];
+	}
 };
 
 struct Palette {
@@ -291,10 +300,10 @@ struct TrayMenu::Impl {
 	HWND owner_window{};
 	std::exception_ptr input_error;
 
-	RECT slider_track(RECT row) const noexcept
+	RECT slider_track(RECT row, const Entry &entry) const noexcept
 	{
-		return {row.left + px(12), row.bottom - px(16), row.right - px(60),
-		        row.bottom - px(12)};
+		return {row.left + px(12), row.bottom - px(16),
+		        row.right - px(20) - entry.value_width, row.bottom - px(12)};
 	}
 
 	void change_slider(Entry &entry, int position, HWND window)
@@ -304,7 +313,7 @@ struct TrayMenu::Impl {
 			return;
 		}
 		entry.position = position;
-		entry.value = std::to_wstring(position) + L" px";
+		entry.value = entry.slider_value(position);
 		entry.spoken = entry.label + L", " + entry.value;
 		entry.accessibility.pszWText = entry.spoken.data();
 		entry.accessibility.cchWText = static_cast<DWORD>(entry.spoken.size());
@@ -322,7 +331,7 @@ struct TrayMenu::Impl {
 		                     &row)) {
 			return;
 		}
-		const auto track = slider_track(row);
+		const auto track = slider_track(row, entry);
 		const float fraction =
 			std::clamp(static_cast<float>(point.x - track.left) /
 		                   std::max(1L, track.right - track.left),
@@ -990,26 +999,53 @@ void TrayMenu::item(HMENU menu, UINT id, const std::wstring &label,
 
 void TrayMenu::slider(HMENU menu, UINT id, const std::wstring &label,
                       int minimum, int maximum, int value,
-                      std::function<void(int)> changed)
+                      std::function<void(int)> changed,
+                      std::vector<std::wstring> values)
 {
 	check_win(maximum > minimum, "Invalid slider range");
+	check_win(values.empty() || values.size() == static_cast<std::size_t>(
+													 maximum - minimum + 1),
+	          "Invalid slider labels");
 	value = std::clamp(value, minimum, maximum);
+	const auto formatted = [&](int position) {
+		return values.empty()
+		           ? std::to_wstring(position) + L" px"
+		           : values[static_cast<std::size_t>(position - minimum)];
+	};
 	if (!impl_->custom) {
-		const auto choices = submenu(menu, label, MenuGlyph::none,
-		                             std::to_wstring(value) + L" px");
+		const auto choices =
+			submenu(menu, label, MenuGlyph::none, formatted(value));
 		for (int position = minimum; position <= maximum; ++position) {
-			item(choices, id + position, std::to_wstring(position) + L" px",
-			     MenuMark::radio, position == value);
+			item(choices, id + position, formatted(position), MenuMark::radio,
+			     position == value);
 		}
 		return;
 	}
 	impl_->append(menu, id, label, Role::item, MenuGlyph::none,
-	              MenuMark::slider, false, std::to_wstring(value) + L" px");
+	              MenuMark::slider, false, formatted(value));
 	auto &entry = *impl_->entries.back();
 	entry.minimum = minimum;
 	entry.maximum = maximum;
 	entry.position = value;
 	entry.changed = std::move(changed);
+	entry.values = std::move(values);
+	entry.value_width = impl_->px(40);
+	ScreenDC screen;
+	check_win(screen.value != nullptr, "Measure slider values");
+	SavedDC saved(screen.value);
+	SelectObject(screen.value, impl_->body.value);
+	for (int position = minimum; position <= maximum; ++position) {
+		const auto text = entry.slider_value(position);
+		SIZE extent{};
+		check_win(GetTextExtentPoint32W(screen.value, text.c_str(),
+		                                static_cast<int>(text.size()), &extent),
+		          "Measure slider value");
+		entry.value_width =
+			std::max(entry.value_width, static_cast<int>(extent.cx));
+	}
+	entry.width = static_cast<UINT>(std::min(
+		impl_->width_limit, std::max(static_cast<int>(entry.width),
+	                                 impl_->px(128) + entry.value_width)));
 	entry.height = static_cast<UINT>(
 		std::max(impl_->px(52), impl_->body_height * 2 + impl_->px(16)));
 }
@@ -1065,7 +1101,7 @@ bool TrayMenu::draw(const DRAWITEMSTRUCT &item) const noexcept
 		           r.top + px(8) + s.body_height};
 		DrawTextW(dc, e->label.c_str(), -1, &label,
 		          DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
-		const auto track = s.slider_track(r);
+		const auto track = s.slider_track(r, *e);
 		const int thumb =
 			track.left +
 			static_cast<int>(static_cast<long long>(track.right - track.left) *
@@ -1255,7 +1291,14 @@ LRESULT TrayMenu::character(wchar_t key, HMENU menu) const noexcept
 	if (!matches) {
 		return MAKELRESULT(0, MNC_IGNORE);
 	}
-	return MAKELRESULT(next < 0 ? first : next,
-	                   matches == 1 ? MNC_EXECUTE : MNC_SELECT);
+	const int selected = next < 0 ? first : next;
+	MENUITEMINFOW info{sizeof(info)};
+	info.fMask = MIIM_DATA;
+	GetMenuItemInfoW(menu, selected, TRUE, &info);
+	const auto *entry = impl_->find(info.dwItemData);
+	return MAKELRESULT(selected,
+	                   matches == 1 && entry && entry->mark != MenuMark::slider
+	                       ? MNC_EXECUTE
+	                       : MNC_SELECT);
 }
 }

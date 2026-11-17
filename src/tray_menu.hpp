@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 #include <windows.h>
 
 namespace snow
@@ -54,9 +55,10 @@ class TrayMenu {
 	          MenuGlyph glyph = MenuGlyph::none, const std::wstring &value = {},
 	          bool enabled = true);
 	bool measure(MEASUREITEMSTRUCT &item) const noexcept;
-	// Native accessibility mode uses a submenu with numeric choices id+value.
+	// Native accessibility mode uses a submenu with choices id+value.
 	void slider(HMENU menu, UINT id, const std::wstring &label, int minimum,
-	            int maximum, int value, std::function<void(int)> changed);
+	            int maximum, int value, std::function<void(int)> changed,
+	            std::vector<std::wstring> values = {});
 	bool draw(const DRAWITEMSTRUCT &item) const noexcept;
 	LRESULT character(wchar_t key, HMENU menu) const noexcept;
 

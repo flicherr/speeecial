@@ -14,7 +14,7 @@ The app lives in the system tray, with every setting available from one compact 
 
 ## Features
 
-- **Adjustable snowfall.** From a few snowflakes to a blizzard, in front of windows or behind them.
+- **Adjustable snowfall.** The **Snowfall** submenu contains two sliders: level (**Off**, **Light**, **Normal**, **Blizzard**) and average snowflake size. Mode changes apply immediately and are saved when the menu closes. Snow can appear in front of windows or behind them.
 - **Snowflake size.** A dedicated slider row in **Snowfall** adjusts the average size from 2 to 12 (default 6). Drag the slider or use the left/right arrow keys; changes apply immediately and are saved when the menu closes. Larger snowflakes build snowbanks faster.
 - **Snow on windows and the taskbar.** Enable each independently, choose from three maximum depths, and let snow melt gradually.
 - **Collapsing and shaken-off snow.** Snow falls when windows close or minimize, shakes loose during sharp movements, and settles on available surfaces below.

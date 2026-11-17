@@ -66,6 +66,7 @@ enum class Text {
 	language,
 	system_language,
 	flake_size,
+	snowfall_level,
 	count
 };
 
@@ -139,6 +140,7 @@ inline constexpr std::array<Translation, static_cast<std::size_t>(Text::count)>
 		{L"Язык / Language", L"Language / Язык"},
 		{L"Системный", L"System"},
 		{L"Средний размер снежинок", L"Average snowflake size"},
+		{L"Уровень снегопада", L"Snowfall level"},
 	}};
 
 constexpr Language resolve_language(Language selected,

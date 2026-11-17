@@ -64,8 +64,10 @@ void exercise(MenuTheme theme, Canvas &canvas, Language language)
 	menu.section(root, tr(Text::effects));
 	const auto child = menu.submenu(root, tr(Text::snowfall), MenuGlyph::snow,
 	                                tr(Text::normal));
-	menu.item(child, 201, tr(Text::light), MenuMark::radio, false);
-	menu.item(child, 202, tr(Text::normal), MenuMark::radio, true);
+	menu.slider(
+		child, 200, tr(Text::snowfall_level), 0, 3, 2, [](int) {},
+		{tr(Text::off), tr(Text::light), tr(Text::normal), tr(Text::blizzard)});
+	menu.slider(child, 520, tr(Text::flake_size), 2, 12, 6, [](int) {});
 	menu.item(root, 114, tr(Text::cursor), MenuMark::toggle, true,
 	          MenuGlyph::cursor);
 	menu.separator(root);
@@ -79,9 +81,22 @@ void exercise(MenuTheme theme, Canvas &canvas, Language language)
 	require(slider_changes == 0,
 	        "Constructing a slider must not change settings");
 	require(item(root, 2).hSubMenu == child, "Submenu ownership lost");
-	require(item(child, 1).wID == 202 && (item(child, 1).fState & MFS_CHECKED), "Selected radio command lost");
+	require(GetMenuItemCount(child) == 2,
+	        "Snowfall must contain exactly two slider rows");
 	require(item(root, 3).wID == 114 && (item(root, 3).fState & MFS_CHECKED), "Toggle command lost");
 	if (!menu.styled()) {
+		const auto modes = item(child, 0).hSubMenu;
+		require(modes && GetMenuItemCount(modes) == 4 &&
+		            item(modes, 0).wID == 200 && item(modes, 3).wID == 203 &&
+		            (item(modes, 2).fState & MFS_CHECKED),
+		        "Native mode choices must preserve all four commands and the "
+		        "current mode");
+		wchar_t first[64]{}, last[64]{};
+		GetMenuStringW(modes, 0, first, 64, MF_BYPOSITION);
+		GetMenuStringW(modes, 3, last, 64, MF_BYPOSITION);
+		require(std::wstring(first) == tr(Text::off) &&
+		            std::wstring(last) == tr(Text::blizzard),
+		        "Mode choices must show localized names instead of pixels");
 		const auto choices = item(root, 7).hSubMenu;
 		require(choices && GetMenuItemCount(choices) == 11,
 		        "Native accessibility mode must offer all size choices");
@@ -97,6 +112,10 @@ void exercise(MenuTheme theme, Canvas &canvas, Language language)
 	require(HIWORD(mnemonic) == MNC_EXECUTE && LOWORD(mnemonic) == 5,
 	        "Localized keyboard selection failed");
 	require(HIWORD(menu.character(L'?', root)) == MNC_IGNORE, "Unknown key selects a command");
+	require(
+		HIWORD(menu.character(language == Language::russian ? L'у' : L's',
+	                          child)) == MNC_SELECT,
+		"A slider mnemonic must select the row without executing its command");
 	MEASUREITEMSTRUCT slider_size{};
 	slider_size.CtlType = ODT_MENU;
 	slider_size.itemData = item(root, 7).dwItemData;

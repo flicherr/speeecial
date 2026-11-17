@@ -388,6 +388,7 @@ void App::show_menu()
 	POINT point{};
 	GetCursorPos(&point);
 	const int original_size = settings_.flake_size;
+	const auto original_density = settings_.density;
 	UINT selected = 0;
 	{
 		const auto theme = settings_.theme == Theme::light ? MenuTheme::light
@@ -409,10 +410,16 @@ void App::show_menu()
 			const auto current = std::clamp(static_cast<int>(settings_.density), 0, 3);
 			const auto sub = menu.submenu(root, tr(Text::snowfall),
 			                              MenuGlyph::snow, labels[current]);
-			for (UINT i = 0; i < std::size(labels); ++i) {
-				menu.item(sub, cmd_density + i, labels[i], MenuMark::radio, current == static_cast<int>(i));
-			}
-			menu.separator(sub);
+			menu.slider(sub, cmd_density, tr(Text::snowfall_level), 0, 3,
+			            current,
+			            [this](int level) {
+							settings_.density = static_cast<Density>(level);
+							if (renderer_) {
+								renderer_->set_settings(settings_);
+							}
+							sync_timer();
+						},
+			            {labels[0], labels[1], labels[2], labels[3]});
 			menu.slider(sub, cmd_flake_size, tr(Text::flake_size), 2, 12,
 			            settings_.flake_size, [this](int size) {
 							settings_.flake_size = size;
@@ -586,7 +593,8 @@ void App::show_menu()
 		selected = menu.track(TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_RIGHTALIGN | TPM_BOTTOMALIGN, point,
 		                      window_);
 	}
-	if (settings_.flake_size != original_size) {
+	if (settings_.flake_size != original_size ||
+	    settings_.density != original_density) {
 		store_.save(settings_);
 	}
 	// Release menu resources before executing commands such as graphics rebuild.

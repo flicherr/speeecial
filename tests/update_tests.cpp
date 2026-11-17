@@ -9,6 +9,8 @@ using namespace snow::updates;
 namespace
 {
 unsigned checks = 0;
+// Release parsing fixtures stay independent of the version being built.
+constexpr std::string_view fixture_current_version = "1.0.11";
 
 void require(bool value, const char *description)
 {
@@ -45,14 +47,16 @@ std::string replace(std::string text, std::string_view before,
 	return text;
 }
 
-std::string file(const char *name)
+#ifdef _WIN32
+std::string generated_file(const char *name)
 {
-	std::ifstream stream(std::string(SNOW_SOURCE_DIR) + "/" + name);
+	std::ifstream stream(std::string(SNOW_GENERATED_DIR) + "/" + name);
 	if (!stream) {
-		throw std::runtime_error("Missing version file");
+		throw std::runtime_error("Missing generated version file");
 	}
 	return std::string(std::istreambuf_iterator<char>(stream), {});
 }
+#endif
 }
 
 int main()
@@ -66,7 +70,7 @@ int main()
 		      "1.-2.3", "+1.2.3", "1.2.99999999999999", " 1.2.3", "1.2.3 "}) {
 			require(!version(text), "invalid version");
 		}
-		auto release = parse_release(fixture(), SPEEECIAL_VERSION);
+		auto release = parse_release(fixture(), fixture_current_version);
 		require(release && release->installable() && release->size == 4096 &&
 		            release->sha256.size() == 64,
 		        "valid release");
@@ -74,14 +78,14 @@ int main()
 		require(!parse_release(fixture(), "2.0.0"), "no downgrade");
 		require(!parse_release(replace(fixture(), "\"prerelease\":false",
 		                               "\"prerelease\":true"),
-		                       SPEEECIAL_VERSION),
+		                       fixture_current_version),
 		        "no prerelease");
 		require(!parse_release(
 					replace(fixture(), "\"draft\":false", "\"draft\":true"),
-					SPEEECIAL_VERSION),
+					fixture_current_version),
 		        "no draft");
 		auto manual = [&](std::string json) {
-			auto result = parse_release(json, SPEEECIAL_VERSION);
+			auto result = parse_release(json, fixture_current_version);
 			require(result && !result->installable(), "manual-only release");
 		};
 		manual(replace(fixture(), "\"name\":\"speeecial-windows-x64.exe\"",
@@ -108,36 +112,38 @@ int main()
 		for (auto text : {"", "null", "[]", "{}", "{broken}",
 		                  "{\"tag_name\":true}", "{\"x\":01}", "{\"x\":1.}",
 		                  "{\"x\":1e}", "{\"x\":\"\\ud800\"}"}) {
-			rejects([&] { parse_release(text, SPEEECIAL_VERSION); },
+			rejects([&] { parse_release(text, fixture_current_version); },
 			        "malformed JSON");
 		}
 		rejects(
-			[&] { parse_release(fixture() + "garbage", SPEEECIAL_VERSION); },
+			[&] {
+				parse_release(fixture() + "garbage", fixture_current_version);
+			},
 			"trailing input");
 		rejects(
 			[&] {
 				parse_release(replace(fixture(), "\"draft\":false",
 			                          "\"draft\":false,\"draft\":true"),
-			                  SPEEECIAL_VERSION);
+			                  fixture_current_version);
 			},
 			"duplicate key");
 		rejects(
 			[&] {
 				parse_release(std::string(2 * 1024 * 1024 + 1, ' '),
-			                  SPEEECIAL_VERSION);
+			                  fixture_current_version);
 			},
 			"JSON size bound");
 		rejects(
 			[&] {
 				parse_release(std::string(34, '[') + "0" + std::string(34, ']'),
-			                  SPEEECIAL_VERSION);
+			                  fixture_current_version);
 			},
 			"JSON depth bound");
 		auto duplicated = fixture();
 		const auto begin = duplicated.find("[{"), end = duplicated.rfind("]");
 		const auto asset = duplicated.substr(begin + 1, end - begin - 1);
 		duplicated.insert(end, "," + asset);
-		rejects([&] { parse_release(duplicated, SPEEECIAL_VERSION); },
+		rejects([&] { parse_release(duplicated, fixture_current_version); },
 		        "duplicate asset");
 		require(automatic_due(100, 0), "initial automatic check");
 		require(!automatic_due(1000, 999), "daily throttle");
@@ -150,17 +156,35 @@ int main()
 		            L"\"C:\\snow folder\\\\\"",
 		        "trailing slash");
 		require(quote_argument(L"a\"b") == L"\"a\\\"b\"", "embedded quote");
-		require(file("CMakeLists.txt").find("VERSION " SPEEECIAL_VERSION) !=
-		            std::string::npos,
+		require(std::string_view(SNOW_PROJECT_VERSION) == SPEEECIAL_VERSION,
 		        "CMake version consistent");
-		require(file("resources/snowdesk.rc")
-		                .find("\"FileVersion\", \"" SPEEECIAL_VERSION) !=
-		            std::string::npos,
-		        "resource version consistent");
-		require(file("resources/snowdesk.manifest")
+		const std::string current = SPEEECIAL_VERSION;
+		require(std::wstring_view(SPEEECIAL_VERSION_W) ==
+		            std::wstring(current.begin(), current.end()),
+		        "Wide version consistent");
+#ifdef _WIN32
+		const auto resource = generated_file("snowdesk.rc");
+		auto numeric = current;
+		for (auto &c : numeric) {
+			if (c == '.') {
+				c = ',';
+			}
+		}
+		for (auto field : {"FILEVERSION ", "PRODUCTVERSION "}) {
+			require(resource.find(std::string(field) + numeric + ",0") !=
+			            std::string::npos,
+			        "Numeric resource version consistent");
+		}
+		for (auto field : {"FileVersion", "ProductVersion"}) {
+			require(resource.find(std::string("\"") + field + "\", \"" +
+			                      current + "\\0\"") != std::string::npos,
+			        "String resource version consistent");
+		}
+		require(generated_file("snowdesk.manifest")
 		                .find("version=\"" SPEEECIAL_VERSION ".0\"") !=
 		            std::string::npos,
 		        "manifest version consistent");
+#endif
 		std::cout << checks << " updater checks passed\n";
 	} catch (const std::exception &error) {
 		std::cerr << error.what() << '\n';

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="resources/snowdesk.svg" width="72" height="72" alt="speeecial ice star">
+  <img src="resources/speeecial.svg" width="72" height="72" alt="speeecial ice star">
 </p>
 <h1 align="center">speeecial</h1>
 <p align="center"><strong>snow desktop</strong> · a little winter on your Windows desktop</p>
@@ -68,13 +68,13 @@ Select the active mode again to resume normal operation. To remove only accumula
 
 ## Settings and updates
 
-Settings are saved automatically to `%LOCALAPPDATA%\SnowDesk\settings.ini`. Open the folder through **Diagnostics → Settings and log folder**. The legacy folder name is retained for compatibility with earlier versions.
+Settings are saved automatically to `%LOCALAPPDATA%\speeecial\settings.ini`. Open the folder through **Diagnostics → Settings and log folder**. Profiles from earlier versions migrate automatically. If the new folder already exists, its settings take priority and the previous folder is left untouched. If migration fails, the app retains access to the existing profile and retries on the next launch.
 
 Open **Updates → Check for updates**. If a newer version is available, an **Update to …** command appears: the app downloads the file, verifies it, and restarts. Automatic checks are enabled by default and run at startup at most once a day; installation is never automatic. Only stable releases are considered.
 
 Built-in installation requires a writable folder containing the EXE. If the release has no suitable file or Windows prevents replacement, use **Updates → Releases on GitHub**: exit the app, download the new version, and replace the EXE manually. Versions 1.0.9 and earlier require a one-time manual update.
 
-Your settings are preserved; snowbank shapes are not saved between sessions. The automatic update check setting is stored separately in `%LOCALAPPDATA%\SnowDesk\updates.ini`. If startup with Windows is enabled, the app updates the registered path to its current EXE. If an updated version fails to start successfully, the updater can restore the previous EXE.
+Your settings are preserved; snowbank shapes are not saved between sessions. The automatic update check setting is stored separately in `%LOCALAPPDATA%\speeecial\updates.ini`. If startup with Windows is enabled, the app updates the registered path to its current EXE. If an updated version fails to start successfully, the updater can restore the previous EXE.
 
 To uninstall, disable startup with Windows, exit the app, and delete the EXE. You can delete the settings folder separately.
 

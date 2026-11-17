@@ -19,7 +19,7 @@ namespace snow
 {
 namespace
 {
-constexpr auto overlay_class = L"SnowDesk.Overlay.1.0";
+constexpr auto overlay_class = L"speeecial.Overlay.1.0";
 constexpr UINT sprite_size = 16;
 
 LRESULT CALLBACK overlay_proc(HWND window, UINT message, WPARAM wparam,

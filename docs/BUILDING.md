@@ -65,7 +65,7 @@ ctest --preset windows-release
 
 Эквивалент через скрипт: `./scripts/build.ps1 -Fresh -Run`.
 
-Настройки приложения лежат в `%LOCALAPPDATA%\SnowDesk` и не зависят от каталога сборки. После перехода с ранней версии запускай `speeecial.exe`; старый `snowdesk.exe` больше не является результатом текущей сборки.
+Настройки приложения лежат в `%LOCALAPPDATA%\speeecial` и не зависят от каталога сборки. Профиль предыдущих версий переносится автоматически; правила миграции описаны в [UPDATES.md](UPDATES.md#миграция-профиля).
 
 ## Ninja и clang-cl
 
@@ -88,14 +88,22 @@ cmake --preset ninja-release -DCMAKE_CXX_COMPILER=clang-cl
 
 ## Тесты
 
-По умолчанию `BUILD_TESTING=ON`: собирается `snow_core_tests`, содержащий 40 групп сценариев модели снега. Windows-тесты включаются отдельно.
+По умолчанию `BUILD_TESTING=ON`: собирается `snow_core_tests`, содержащий 40 групп сценариев модели снега, и `snow_update_tests`. На Windows также включён `snow_windows_migration_tests`; тесты меню, графики и установки обновлений включаются отдельно.
+
+### Миграция профиля
+
+Проверяет перенос настроек и журнала, сохранение параметров обновлений, приоритет нового профиля, повторный запуск после блокировки или прерванного преобразования, перенос и выключение автозапуска и совместимость защиты от второго экземпляра. Использует отдельные временные папки, уникальные mutex и временный ключ HKCU; настоящий профиль и автозапуск пользователя не изменяются.
+
+```powershell
+ctest --preset windows-release -R '^snow_windows_migration_tests$'
+```
 
 ### Меню
 
 Проверяет команды, состояния, подписи доступности, отрисовку с сохранением GDI-контекста и освобождение USER/GDI-объектов при повторных циклах создания и удаления меню.
 
 ```powershell
-cmake --preset windows-msvc -DSNOWDESK_WINDOWS_MENU_TESTS=ON
+cmake --preset windows-msvc -DSPEEECIAL_WINDOWS_MENU_TESTS=ON
 cmake --build --preset windows-release --target snow_windows_menu_tests
 ctest --preset windows-release -R '^snow_windows_menu_tests$'
 ```
@@ -107,7 +115,7 @@ ctest --preset windows-release -R '^snow_windows_menu_tests$'
 Этот тест временно открывает и активирует тестовые окна, создаёт снежные слои и проверяет серии пересоздания графики. Запускай его на обычном интерактивном рабочем столе Windows с аппаратной D3D11, а не в headless CI.
 
 ```powershell
-cmake --preset windows-msvc -DSNOWDESK_WINDOWS_GRAPHICS_TESTS=ON
+cmake --preset windows-msvc -DSPEEECIAL_WINDOWS_GRAPHICS_TESTS=ON
 cmake --build --preset windows-release --target snow_windows_graphics_tests
 ctest --preset windows-release -R '^snow_windows_graphics_tests$'
 ```
@@ -124,12 +132,12 @@ ctest --test-dir build/native --output-on-failure
 
 ## Ресурсы и версия
 
-- `resources/snowdesk.rc.in` — шаблон ресурсов: иконка, манифест и сведения о версии.
-- `resources/snowdesk.ico` — встроенная иконка разных размеров.
-- `resources/snowdesk.svg` — редактируемый векторный исходник и изображение для документации; во время работы EXE не загружается.
-- `resources/snowdesk.manifest.in` — шаблон манифеста: DPI awareness, совместимость и запуск без повышения прав.
+- `resources/speeecial.rc.in` — шаблон ресурсов: иконка, манифест и сведения о версии.
+- `resources/speeecial.ico` — встроенная иконка разных размеров.
+- `resources/speeecial.svg` — редактируемый векторный исходник и изображение для документации; во время работы EXE не загружается.
+- `resources/speeecial.manifest.in` — шаблон манифеста: DPI awareness, совместимость и запуск без повышения прав.
 
-Версия задаётся только строкой `SPEEECIAL_VERSION` в `src/version.hpp`. Для нового выпуска измени её и запусти обычную сборку. CMake читает заголовок перед `project()` и автоматически повторяет конфигурацию при его изменении. Файлы `generated/snowdesk.rc` и `generated/snowdesk.manifest` в каталоге сборки создаются из шаблонов с той же версией; четвёртая часть числовой версии Windows равна нулю. Широкая строка для интерфейса получается из того же макроса, скрипт упаковки также читает заголовок. Сгенерированные файлы вручную не редактируются. Имена внутренних классов, mutex и каталога настроек `SnowDesk` сохраняются для совместимости.
+Версия задаётся только строкой `SPEEECIAL_VERSION` в `src/version.hpp`. Для нового выпуска измени её и запусти обычную сборку. CMake читает заголовок перед `project()` и автоматически повторяет конфигурацию при его изменении. Файлы `generated/speeecial.rc` и `generated/speeecial.manifest` в каталоге сборки создаются из шаблонов с той же версией; четвёртая часть числовой версии Windows равна нулю. Широкая строка для интерфейса получается из того же макроса, скрипт упаковки также читает заголовок. Сгенерированные файлы вручную не редактируются. Проект, цель приложения, ресурсы, классы окон и профиль используют имя `speeecial`; прежние идентификаторы для совместимости изолированы в `src/migration.cpp`.
 
 ## Упаковка релизов и обновления
 

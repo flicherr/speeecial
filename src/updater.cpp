@@ -834,10 +834,14 @@ std::optional<int> run_update_mode()
 
 void acknowledge_update_startup() noexcept
 {
-	if (startup_event) {
-		SetEvent(startup_event);
+	if (startup_event && SetEvent(startup_event)) {
 		CloseHandle(startup_event);
 		startup_event = nullptr;
 	}
+}
+
+bool update_startup_pending() noexcept
+{
+	return startup_event != nullptr;
 }
 }

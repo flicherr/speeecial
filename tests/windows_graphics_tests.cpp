@@ -127,8 +127,8 @@ void popup_order(Renderer &renderer)
 		snapshot.popups = {popup};
 		renderer.synchronize_desktop(snapshot);
 		bool checked = false;
-		for (HWND w = FindWindowExW(nullptr, nullptr, L"SnowDesk.Overlay.1.0", nullptr); w;
-		     w = FindWindowExW(nullptr, w, L"SnowDesk.Overlay.1.0", nullptr)) {
+		for (HWND w = FindWindowExW(nullptr, nullptr, L"speeecial.Overlay.1.0", nullptr); w;
+		     w = FindWindowExW(nullptr, w, L"speeecial.Overlay.1.0", nullptr)) {
 			DWORD pid = 0;
 			GetWindowThreadProcessId(w, &pid);
 			RECT bounds{}, popup_bounds{};
@@ -150,8 +150,8 @@ void popup_order(Renderer &renderer)
 		}
 		ShowWindow(popup, SW_HIDE);
 		renderer.synchronize_desktop({});
-		for (HWND w = FindWindowExW(nullptr, nullptr, L"SnowDesk.Overlay.1.0", nullptr); w;
-		     w = FindWindowExW(nullptr, w, L"SnowDesk.Overlay.1.0", nullptr)) {
+		for (HWND w = FindWindowExW(nullptr, nullptr, L"speeecial.Overlay.1.0", nullptr); w;
+		     w = FindWindowExW(nullptr, w, L"speeecial.Overlay.1.0", nullptr)) {
 			DWORD pid = 0;
 			GetWindowThreadProcessId(w, &pid);
 			if (pid == GetCurrentProcessId() && !(GetWindowLongPtrW(w, GWL_EXSTYLE) & WS_EX_TOPMOST)) {
@@ -202,8 +202,8 @@ void popup_switching(Renderer &renderer)
 
 	const auto verify = [&](HWND tip) {
 		bool checked = false;
-		for (HWND w = FindWindowExW(nullptr, nullptr, L"SnowDesk.Overlay.1.0", nullptr); w;
-		     w = FindWindowExW(nullptr, w, L"SnowDesk.Overlay.1.0", nullptr)) {
+		for (HWND w = FindWindowExW(nullptr, nullptr, L"speeecial.Overlay.1.0", nullptr); w;
+		     w = FindWindowExW(nullptr, w, L"speeecial.Overlay.1.0", nullptr)) {
 			DWORD pid = 0;
 			GetWindowThreadProcessId(w, &pid);
 			RECT bounds{}, app_bounds{};
@@ -306,8 +306,8 @@ void shell_layer(Renderer &renderer, const Display &display)
 	SetForegroundWindow(app);
 	ShowWindow(bar, SW_SHOWNOACTIVATE);
 	std::vector<HWND> overlays;
-	for (HWND w = FindWindowExW(nullptr, nullptr, L"SnowDesk.Overlay.1.0", nullptr); w;
-	     w = FindWindowExW(nullptr, w, L"SnowDesk.Overlay.1.0", nullptr)) {
+	for (HWND w = FindWindowExW(nullptr, nullptr, L"speeecial.Overlay.1.0", nullptr); w;
+	     w = FindWindowExW(nullptr, w, L"speeecial.Overlay.1.0", nullptr)) {
 		DWORD pid = 0;
 		GetWindowThreadProcessId(w, &pid);
 		RECT bounds{};

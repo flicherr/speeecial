@@ -163,7 +163,7 @@ int main()
 		            std::wstring(current.begin(), current.end()),
 		        "Wide version consistent");
 #ifdef _WIN32
-		const auto resource = generated_file("snowdesk.rc");
+		const auto resource = generated_file("speeecial.rc");
 		auto numeric = current;
 		for (auto &c : numeric) {
 			if (c == '.') {
@@ -180,7 +180,7 @@ int main()
 			                      current + "\\0\"") != std::string::npos,
 			        "String resource version consistent");
 		}
-		require(generated_file("snowdesk.manifest")
+		require(generated_file("speeecial.manifest")
 		                .find("version=\"" SPEEECIAL_VERSION ".0\"") !=
 		            std::string::npos,
 		        "manifest version consistent");

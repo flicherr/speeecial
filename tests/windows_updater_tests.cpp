@@ -36,6 +36,29 @@ void wait_process(HANDLE process, DWORD expected)
 	require(code == expected, "Unexpected helper exit code");
 }
 
+void startup_acknowledgement()
+{
+	using namespace snow;
+	require(!update_startup_pending(), "Unexpected pending startup");
+	UniqueHandle signal(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+	check_win(signal.get() != nullptr, "Create startup acknowledgement event");
+	check_win(DuplicateHandle(GetCurrentProcess(), signal.get(),
+	                          GetCurrentProcess(), &startup_event,
+	                          EVENT_MODIFY_STATE, FALSE, 0),
+	          "Duplicate startup acknowledgement event");
+	require(update_startup_pending(),
+	        "Startup must remain pending before signal");
+	acknowledge_update_startup();
+	require(!update_startup_pending() &&
+	            WaitForSingleObject(signal.get(), 0) == WAIT_OBJECT_0,
+	        "Successful acknowledgement must release migration guard");
+	startup_event = INVALID_HANDLE_VALUE;
+	acknowledge_update_startup();
+	require(update_startup_pending(),
+	        "Failed acknowledgement must keep migration deferred for rollback");
+	startup_event = nullptr;
+}
+
 void scenario(const std::filesystem::path &root,
               const std::filesystem::path &old_fixture,
               const std::filesystem::path &new_fixture, int mode)
@@ -138,6 +161,7 @@ int wmain(int argc, wchar_t **argv)
 				std::string(hash.begin(), hash.end()), silent_report);
 		}
 		require(argc == 3, "Pass old and new fixture executables");
+		startup_acknowledgement();
 		wchar_t temp[32768]{};
 		GetTempPathW(32768, temp);
 		const auto root = std::filesystem::path(temp) /

@@ -62,4 +62,5 @@ class Updater {
 // Handle helper mode before COM, singleton, graphics or autostart changes.
 std::optional<int> run_update_mode();
 void acknowledge_update_startup() noexcept;
+bool update_startup_pending() noexcept;
 }

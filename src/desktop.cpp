@@ -372,7 +372,7 @@ struct DesktopScanner::Impl {
 		if (now - last_probe >= 1000) {
 			last_probe = now;
 			HWND probe = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-			                             L"STATIC", L"SnowDesk desktop probe",
+			                             L"STATIC", L"speeecial desktop probe",
 			                             WS_POPUP, 0, 0, 0, 0, nullptr, nullptr,
 			                             GetModuleHandleW(nullptr), nullptr);
 			if (probe) {

@@ -1,8 +1,8 @@
 #include <windows.h>
 #pragma code_page(65001)
 
-101 ICON "@CMAKE_CURRENT_SOURCE_DIR@/resources/snowdesk.ico"
-1 RT_MANIFEST "@SNOW_GENERATED_DIR@/snowdesk.manifest"
+101 ICON "@CMAKE_CURRENT_SOURCE_DIR@/resources/speeecial.ico"
+1 RT_MANIFEST "@SNOW_GENERATED_DIR@/speeecial.manifest"
 
 1 VERSIONINFO
  FILEVERSION @SNOW_VERSION_RESOURCE@

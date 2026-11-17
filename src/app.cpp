@@ -16,7 +16,7 @@ namespace snow
 {
 namespace
 {
-constexpr auto control_class = L"SnowDesk.Control.1.0";
+constexpr auto control_class = L"speeecial.Control.1.0";
 constexpr UINT message_tray = WM_APP + 1;
 constexpr UINT message_policy = WM_APP + 3;
 constexpr UINT_PTR timer_frame = 1, timer_policy = 2, timer_rebuild = 3, timer_desktop = 4, timer_menu_tip = 5;
@@ -117,23 +117,32 @@ int App::run()
 		check_win(FALSE, "Create policy timer");
 	}
 	measurement_start_ = std::chrono::steady_clock::now();
+	rebuild();
+	if (tray_added_ && renderer_) {
+		acknowledge_update_startup();
+	}
+	// A rollback may still launch the legacy executable until startup has
+	// been acknowledged. Keep its profile untouched until that point.
+	if (!update_startup_pending()) {
+		try {
+			store_.migrate();
+		} catch (const std::exception &error) {
+			report_error(error.what(), false);
+		}
+	}
 	store_.log("speeecial (snow desktop) " SPEEECIAL_VERSION " started");
 	// If already enabled, follow this executable after an upgrade/move.
 	try {
-		if (SettingsStore::autostart()) {
+		if (!update_startup_pending() && SettingsStore::autostart()) {
 			SettingsStore::set_autostart(true);
 		}
 	} catch (const std::exception &error) {
 		store_.log(error.what());
 	}
-	rebuild();
 	try {
 		updater_ = std::make_unique<Updater>(window_, store_.directory());
 	} catch (const std::exception &error) {
 		report_error(error.what(), false);
-	}
-	if (tray_added_ && renderer_) {
-		acknowledge_update_startup();
 	}
 	MSG message{};
 	bool quit = false;

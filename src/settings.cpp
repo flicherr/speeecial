@@ -1,4 +1,5 @@
 #include "settings.hpp"
+#include "migration.hpp"
 #include "win_util.hpp"
 #include <fstream>
 #include <iomanip>
@@ -9,6 +10,17 @@ namespace snow
 namespace
 {
 constexpr auto run_key = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+struct RegistryKey {
+	HKEY value{};
+
+	~RegistryKey()
+	{
+		if (value) {
+			RegCloseKey(value);
+		}
+	}
+};
 }
 
 SettingsStore::SettingsStore()
@@ -18,13 +30,22 @@ SettingsStore::SettingsStore()
 	                           &path),
 	      "SHGetKnownFolderPath");
 	try {
-		directory_ = std::filesystem::path(path) / L"SnowDesk";
+		directory_ = migration::profile_directory(path);
 	} catch (...) {
 		CoTaskMemFree(path);
 		throw;
 	}
 	CoTaskMemFree(path);
-	std::filesystem::create_directories(directory_);
+}
+
+void SettingsStore::migrate()
+{
+	migration::migrate_profile(directory_);
+}
+
+SettingsStore::SettingsStore(const std::filesystem::path &local)
+	: directory_(migration::profile_directory(local))
+{
 }
 
 Settings SettingsStore::load() const
@@ -32,8 +53,7 @@ Settings SettingsStore::load() const
 	Settings s;
 	const auto file = directory_ / L"settings.ini";
 	auto read = [&](const wchar_t *name, int fallback) {
-		return static_cast<int>(
-			GetPrivateProfileIntW(L"SnowDesk", name, fallback, file.c_str()));
+		return migration::read_setting(file, name, fallback);
 	};
 	s.density = static_cast<Density>(read(L"Density", 2));
 	s.wind = static_cast<Wind>(read(L"Wind", 1));
@@ -59,11 +79,18 @@ Settings SettingsStore::load() const
 void SettingsStore::save(const Settings &s) const
 {
 	const auto temporary = directory_ / L"settings.ini.tmp";
+	// A previous version may have left an unfinished save in another section.
+	// Build the new snapshot from scratch instead of carrying stale data over.
+	if (!DeleteFileW(temporary.c_str()) &&
+	    GetLastError() != ERROR_FILE_NOT_FOUND) {
+		check_win(FALSE, "Remove stale settings snapshot");
+	}
 	auto write = [&](const wchar_t *name, int value) {
 		const auto text = std::to_wstring(value);
-		check_win(WritePrivateProfileStringW(L"SnowDesk", name, text.c_str(),
-		                                     temporary.c_str()),
-		          "WritePrivateProfileString");
+		check_win(
+			WritePrivateProfileStringW(migration::write_section(directory_),
+		                               name, text.c_str(), temporary.c_str()),
+			"WritePrivateProfileString");
 	};
 	write(L"Density", static_cast<int>(s.density));
 	write(L"Wind", static_cast<int>(s.wind));
@@ -92,7 +119,7 @@ void SettingsStore::save(const Settings &s) const
 void SettingsStore::log(const std::string &message) const noexcept
 {
 	try {
-		const auto file = directory_ / L"snowdesk.log";
+		const auto file = directory_ / L"speeecial.log";
 		std::error_code error;
 		const auto size = std::filesystem::file_size(file, error);
 		std::ofstream out(file, !error && size > 512 * 1024 ? std::ios::trunc
@@ -109,39 +136,34 @@ void SettingsStore::log(const std::string &message) const noexcept
 
 bool SettingsStore::autostart()
 {
-	DWORD bytes = 0;
-	return RegGetValueW(HKEY_CURRENT_USER, run_key, L"SnowDesk", RRF_RT_REG_SZ,
-	                    nullptr, nullptr, &bytes) == ERROR_SUCCESS;
+	RegistryKey key;
+	const auto status = RegOpenKeyExW(HKEY_CURRENT_USER, run_key, 0,
+	                                  KEY_QUERY_VALUE, &key.value);
+	if (status == ERROR_FILE_NOT_FOUND) {
+		return false;
+	}
+	check(HRESULT_FROM_WIN32(status), "Open autostart registry key");
+	return migration::autostart(key.value);
 }
 
 void SettingsStore::set_autostart(bool enabled)
 {
-	HKEY key = nullptr;
+	RegistryKey key;
 	auto status = RegCreateKeyExW(HKEY_CURRENT_USER, run_key, 0, nullptr, 0,
-	                              KEY_SET_VALUE, nullptr, &key, nullptr);
+	                              KEY_SET_VALUE, nullptr, &key.value, nullptr);
 	check(HRESULT_FROM_WIN32(status), "Open autostart registry key");
+	std::wstring command;
 	if (enabled) {
 		std::wstring filename(32768, L'\0');
 		const auto length = GetModuleFileNameW(
 			nullptr, filename.data(), static_cast<DWORD>(filename.size()));
 		if (!length || length >= filename.size()) {
-			RegCloseKey(key);
 			throw std::runtime_error(
 				"Cannot resolve executable path for autostart");
 		}
 		filename.resize(length);
-		const auto command = L"\"" + filename + L"\"";
-		status = RegSetValueExW(
-			key, L"SnowDesk", 0, REG_SZ,
-			reinterpret_cast<const BYTE *>(command.c_str()),
-			static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
-	} else {
-		status = RegDeleteValueW(key, L"SnowDesk");
-		if (status == ERROR_FILE_NOT_FOUND) {
-			status = ERROR_SUCCESS;
-		}
+		command = L"\"" + filename + L"\"";
 	}
-	RegCloseKey(key);
-	check(HRESULT_FROM_WIN32(status), "Update autostart registry value");
+	migration::set_autostart(key.value, enabled, command);
 }
 }

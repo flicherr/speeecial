@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "migration.hpp"
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
@@ -6,14 +7,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 		if (auto result = snow::run_update_mode()) {
 			return *result;
 		}
-		// Keep the prototype's singleton identity to prevent two overlays
-		// running.
-		snow::UniqueHandle instance_mutex(
-			CreateMutexW(nullptr, FALSE, L"Local\\SnowDesk.Prototype.0.1"));
-		if (!instance_mutex.get()) {
-			snow::check_win(FALSE, "Create instance mutex");
-		}
-		if (GetLastError() == ERROR_ALREADY_EXISTS) {
+		snow::migration::InstanceGuard instance_guard;
+		if (!instance_guard) {
 			return 0;
 		}
 		snow::ComApartment com;

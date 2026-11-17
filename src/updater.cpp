@@ -614,8 +614,8 @@ void Updater::check(bool manual)
 			try {
 				std::string json;
 				download(
-					L"https://api.github.com/repos/flicherr/"
-				    L"speeecial-snow-desktop/releases/latest",
+					L"https://api.github.com/repos/flicherr/speeecial/releases/"
+					L"latest",
 					[&](const unsigned char *data, DWORD count) {
 						if (json.size() + count > 2 * 1024 * 1024) {
 							throw std::runtime_error(

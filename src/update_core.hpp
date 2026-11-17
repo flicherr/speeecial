@@ -8,11 +8,10 @@
 
 namespace snow::updates
 {
-inline constexpr std::string_view repository =
-	"flicherr/speeecial-snow-desktop";
+inline constexpr std::string_view repository = "flicherr/speeecial";
 inline constexpr std::string_view asset_name = "speeecial-windows-x64.exe";
 inline constexpr std::string_view releases_page =
-	"https://github.com/flicherr/speeecial-snow-desktop/releases";
+	"https://github.com/flicherr/speeecial/releases";
 inline constexpr std::uint64_t max_download = 128 * 1024 * 1024;
 using Version = std::array<unsigned, 3>;
 std::optional<Version> version(std::string_view value) noexcept;

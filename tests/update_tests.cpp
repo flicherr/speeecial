@@ -31,7 +31,7 @@ template <class F> void rejects(F action, const char *description)
 
 std::string fixture()
 {
-	return R"({"tag_name":"v1.0.12","draft":false,"prerelease":false,"body":"Snow \u2744 \ud83c\udf28\ufe0f","assets":[{"name":"speeecial-windows-x64.exe","state":"uploaded","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":4096,"browser_download_url":"https://github.com/flicherr/speeecial-snow-desktop/releases/download/v1.0.12/speeecial-windows-x64.exe"}]})";
+	return R"({"tag_name":"v1.0.12","draft":false,"prerelease":false,"body":"Snow \u2744 \ud83c\udf28\ufe0f","assets":[{"name":"speeecial-windows-x64.exe","state":"uploaded","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":4096,"browser_download_url":"https://github.com/flicherr/speeecial/releases/download/v1.0.12/speeecial-windows-x64.exe"}]})";
 }
 
 std::string replace(std::string text, std::string_view before,
@@ -103,6 +103,7 @@ int main()
 		}
 		manual(replace(fixture(), "/download/v1.0.12/", "/download/v2.0.0/"));
 		manual(replace(fixture(), "/flicherr/", "/other/"));
+		manual(replace(fixture(), "/speeecial/", "/speeecial-snow-desktop/"));
 		manual(replace(fixture(), "\"uploaded\"", "\"new\""));
 		for (auto text : {"", "null", "[]", "{}", "{broken}",
 		                  "{\"tag_name\":true}", "{\"x\":01}", "{\"x\":1.}",

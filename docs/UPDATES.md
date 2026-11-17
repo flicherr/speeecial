@@ -1,6 +1,6 @@
 # Обновления portable-версии
 
-Источник: [flicherr/speeecial-snow-desktop](https://github.com/flicherr/speeecial-snow-desktop). Клиент обращается к `GET /repos/flicherr/speeecial-snow-desktop/releases/latest` без токена. Черновики, prerelease и версии не новее текущей не устанавливаются. Поддерживаются теги `vX.Y.Z` и `X.Y.Z`, сравнение числовое.
+Источник: [flicherr/speeecial](https://github.com/flicherr/speeecial). Клиент обращается к `GET /repos/flicherr/speeecial/releases/latest` без токена. Черновики, prerelease и версии не новее текущей не устанавливаются. Поддерживаются теги `vX.Y.Z` и `X.Y.Z`, сравнение числовое.
 
 ## Поведение клиента
 

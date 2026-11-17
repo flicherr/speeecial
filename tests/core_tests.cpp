@@ -226,6 +226,14 @@ void popup_order_is_per_monitor()
 void settings_and_limits()
 {
 	Settings s;
+	require(s.flake_size == 6,
+	        "Default snowflake size preserves the original distribution");
+	s.flake_size = -10;
+	s.normalize();
+	require(s.flake_size == 2, "Snowflake size lower limit");
+	s.flake_size = 100;
+	s.normalize();
+	require(s.flake_size == 12, "Snowflake size upper limit");
 	require(s.theme == Theme::system, "System theme must be the default");
 	require(s.language == Language::system,
 	        "System language must be the default");
@@ -285,6 +293,66 @@ void settings_and_limits()
 		require(particles_per_monitor(Density::heavy, n) * n <= max_particles, "Global snow budget");
 	}
 	require(particles_per_monitor(Density::off, 1) == 0, "Off must create no flakes");
+}
+
+void snowflake_size_and_accumulation()
+{
+	for (float dpi : {1.0f, 1.5f, 2.0f}) {
+		Simulation sim(42);
+		sim.configure({0, 0, 320, 320}, dpi, 50, 8);
+		const auto original = std::vector<Particle>(sim.particles().begin(),
+		                                            sim.particles().end());
+		const auto *storage = sim.particles().data();
+		for (int mean : {2, 12, 6}) {
+			sim.set_flake_size(mean);
+			require(sim.particles().data() == storage &&
+			            sim.particles().size() == original.size(),
+			        "Size adjustment must keep particle count and storage");
+			for (std::size_t i = 0; i < original.size(); ++i) {
+				const auto &p = sim.particles()[i];
+				require(std::abs(p.size - original[i].size * mean / 6.0f) <
+				            0.0001f,
+				        "Existing snowflakes must immediately follow the size "
+				        "setting");
+				require(p.x == original[i].x && p.y == original[i].y &&
+				            p.speed == original[i].speed,
+				        "Resizing snowflakes must not restart their flight");
+				require(
+					p.size >= mean * dpi * 0.5f - 0.0001f &&
+						p.size <= mean * dpi * 1.5f + 0.0001f,
+					"Size distribution must respect DPI and the selected mean");
+			}
+		}
+		sim.set_flake_size(12);
+		sim.configure({0, 0, 320, 320}, dpi, 60, 8);
+		for (const auto &p : sim.particles()) {
+			require(p.size >= 6 * dpi && p.size <= 18 * dpi,
+			        "New particles must use the selected size after changing "
+			        "density");
+		}
+	}
+	const auto first_deposit = [](int mean) {
+		Landscape world;
+		Settings settings;
+		settings.flake_size = mean;
+		settings.wind = Wind::calm;
+		sync(world, {floor_surface()}, settings);
+		Simulation sim(42);
+		sim.configure({0, 0, 320, 320}, 1, 1, 0);
+		for (int frame = 0; frame < 1000; ++frame) {
+			sim.update(1.0f / 30, settings, world, {});
+			const float deposited = total(world.find(100)->snow);
+			if (deposited > 0) {
+				return deposited;
+			}
+		}
+		throw std::runtime_error("Snowflake did not reach the taskbar");
+	};
+	const float normal = first_deposit(6);
+	require(std::abs(first_deposit(12) / normal - 4) < 0.001f,
+	        "Doubling the size must quadruple the snow deposited per hit");
+	require(std::abs(first_deposit(2) / normal - 1.0f / 9) < 0.001f,
+	        "Smaller snowflakes must build banks more slowly");
 }
 
 void browser_status_layer_policy()
@@ -1284,6 +1352,7 @@ int main()
 {
 	const std::pair<const char *, void (*)()> tests[] = {
 		{"settings_and_limits", settings_and_limits},
+		{"snowflake_size_and_accumulation", snowflake_size_and_accumulation},
 		{"transient_window_roles", transient_window_roles},
 		{"window_inventory_recovery", window_inventory_recovery},
 		{"incomplete_inventory_preserves_banks",

@@ -50,7 +50,8 @@ enum Command : UINT {
 	cmd_layer = 310,
 	cmd_height = 330,
 	cmd_theme = 500,
-	cmd_language = 510
+	cmd_language = 510,
+	cmd_flake_size = 520
 };
 }
 
@@ -386,6 +387,7 @@ void App::show_menu()
 	const auto tr = [language](Text text) { return localized(text, language); };
 	POINT point{};
 	GetCursorPos(&point);
+	const int original_size = settings_.flake_size;
 	UINT selected = 0;
 	{
 		const auto theme = settings_.theme == Theme::light ? MenuTheme::light
@@ -410,6 +412,15 @@ void App::show_menu()
 			for (UINT i = 0; i < std::size(labels); ++i) {
 				menu.item(sub, cmd_density + i, labels[i], MenuMark::radio, current == static_cast<int>(i));
 			}
+			menu.separator(sub);
+			menu.slider(sub, cmd_flake_size, tr(Text::flake_size), 2, 12,
+			            settings_.flake_size, [this](int size) {
+							settings_.flake_size = size;
+							if (renderer_) {
+								renderer_->set_settings(settings_);
+							}
+							sync_timer();
+						});
 		}
 		{
 			const auto sub = menu.submenu(
@@ -575,6 +586,9 @@ void App::show_menu()
 		selected = menu.track(TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_RIGHTALIGN | TPM_BOTTOMALIGN, point,
 		                      window_);
 	}
+	if (settings_.flake_size != original_size) {
+		store_.save(settings_);
+	}
 	// Release menu resources before executing commands such as graphics rebuild.
 	PostMessageW(window_, WM_NULL, 0, 0);
 	if (selected) {
@@ -668,7 +682,9 @@ void App::update_menu_tip()
 void App::command(UINT id)
 {
 	bool changed = true;
-	if (id >= cmd_density && id < cmd_density + 4) {
+	if (id >= cmd_flake_size + 2 && id <= cmd_flake_size + 12) {
+		settings_.flake_size = static_cast<int>(id - cmd_flake_size);
+	} else if (id >= cmd_density && id < cmd_density + 4) {
 		settings_.density = static_cast<Density>(id - cmd_density);
 	} else if (id >= cmd_wind && id < cmd_wind + 3) {
 		settings_.wind = static_cast<Wind>(id - cmd_wind);

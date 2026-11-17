@@ -7,6 +7,7 @@ namespace snow
 {
 void Settings::normalize() noexcept
 {
+	flake_size = std::clamp(flake_size, 2, 12);
 	if (density < Density::off || density > Density::heavy) {
 		density = Density::normal;
 	}
@@ -203,7 +204,7 @@ void Simulation::configure(Rect bounds, float scale, std::size_t count,
 	particles_.resize(std::min(count, max_particles));
 	for (std::size_t i = old; i < particles_.size(); ++i) {
 		auto &p = particles_[i];
-		p.size = random(3, 9) * scale_;
+		p.size = random(0.5f, 1.5f) * static_cast<float>(flake_size_) * scale_;
 		p.speed = random(22, 70) * scale_;
 		p.opacity = random(0.35f, 0.95f);
 		p.phase = random(0, 6.2831853f);
@@ -213,6 +214,19 @@ void Simulation::configure(Rect bounds, float scale, std::size_t count,
 	}
 	debris_.resize(std::min(slots, max_debris));
 	next_debris_ = 0;
+}
+
+void Simulation::set_flake_size(int mean_size) noexcept
+{
+	mean_size = std::clamp(mean_size, 2, 12);
+	if (mean_size == flake_size_) {
+		return;
+	}
+	const float ratio = static_cast<float>(mean_size) / flake_size_;
+	for (auto &p : particles_) {
+		p.size *= ratio;
+	}
+	flake_size_ = mean_size;
 }
 
 void Simulation::respawn(Particle &p, bool spread)
@@ -355,6 +369,7 @@ void Simulation::update(float dt, const Settings &settings,
 		return;
 	}
 	dt = std::min(dt, 0.1f);
+	set_flake_size(settings.flake_size);
 	time_ = std::fmod(time_ + dt, 4096.0f);
 	float breeze = 0;
 	if (settings.wind == Wind::gentle) {
@@ -376,7 +391,9 @@ void Simulation::update(float dt, const Settings &settings,
 		p.x += (breeze + p.sway * std::sin(p.phase) + p.drift) * dt;
 		p.y += std::clamp(p.speed + p.lift, -500 * scale_, 900 * scale_) * dt;
 		if (auto hit = landscape.collide(old_x, old_y, p.x, p.y, settings)) {
-			landscape.deposit(*hit, p.size * 0.07f);
+			// Area grows quadratically with the size setting. Keep the original
+			// accumulation rate at the default mean size of 6.
+			landscape.deposit(*hit, p.size * 0.07f * flake_size_ / 6.0f);
 			// Continue screen-space weather below this edge instead of starving
 			// nested foreground windows and the taskbar by restarting at the
 			// top.

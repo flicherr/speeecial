@@ -2,8 +2,10 @@
 #include "win_util.hpp"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <commctrl.h>
 #include <cstdlib>
+#include <exception>
 #include <oleacc.h>
 #include <shellscalingapi.h>
 #include <vector>
@@ -83,6 +85,10 @@ struct Entry {
 	MenuMark mark{};
 	Role role{};
 	UINT width{}, height{};
+	UINT id{};
+	UINT menu_position{};
+	int minimum{}, maximum{}, position{};
+	std::function<void(int)> changed;
 };
 
 struct Palette {
@@ -280,6 +286,145 @@ struct TrayMenu::Impl {
 	std::array<Frame, 32> frames{};
 	inline static thread_local Impl *tracking = nullptr;
 	bool attaching = false;
+	Entry *dragging = nullptr;
+	HWND drag_window{};
+	HWND owner_window{};
+	std::exception_ptr input_error;
+
+	RECT slider_track(RECT row) const noexcept
+	{
+		return {row.left + px(12), row.bottom - px(16), row.right - px(60),
+		        row.bottom - px(12)};
+	}
+
+	void change_slider(Entry &entry, int position, HWND window)
+	{
+		position = std::clamp(position, entry.minimum, entry.maximum);
+		if (position == entry.position) {
+			return;
+		}
+		entry.position = position;
+		entry.value = std::to_wstring(position) + L" px";
+		entry.spoken = entry.label + L", " + entry.value;
+		entry.accessibility.pszWText = entry.spoken.data();
+		entry.accessibility.cchWText = static_cast<DWORD>(entry.spoken.size());
+		if (entry.changed) {
+			entry.changed(position);
+		}
+		InvalidateRect(window, nullptr, FALSE);
+		UpdateWindow(window);
+	}
+
+	void drag_slider(Entry &entry, HWND window, POINT point)
+	{
+		RECT row{};
+		if (!GetMenuItemRect(owner_window, entry.owner, entry.menu_position,
+		                     &row)) {
+			return;
+		}
+		const auto track = slider_track(row);
+		const float fraction =
+			std::clamp(static_cast<float>(point.x - track.left) /
+		                   std::max(1L, track.right - track.left),
+		               0.0f, 1.0f);
+		change_slider(entry,
+		              entry.minimum +
+		                  static_cast<int>(std::lround(
+							  fraction * (entry.maximum - entry.minimum))),
+		              window);
+	}
+
+	bool slider_input(const MSG &message)
+	{
+		// MSG.pt is in screen coordinates and belongs to this input event.
+		const POINT point = message.pt;
+		if (dragging && (message.message == WM_MOUSEMOVE ||
+		                 message.message == WM_LBUTTONUP)) {
+			drag_slider(*dragging, drag_window, point);
+			if (message.message == WM_LBUTTONUP) {
+				dragging = nullptr;
+			}
+			return true;
+		}
+		const bool mouse = message.message == WM_LBUTTONDOWN ||
+		                   message.message == WM_LBUTTONDBLCLK;
+		const bool keyboard = message.message == WM_KEYDOWN;
+		if (!mouse && !keyboard) {
+			return false;
+		}
+		for (const auto &f : frames) {
+			MENUBARINFO menu{sizeof(menu)};
+			if (!f.window || !IsWindowVisible(f.window) ||
+			    !GetMenuBarInfo(f.window, OBJID_CLIENT, 0, &menu) ||
+			    !owns(menu.hMenu)) {
+				continue;
+			}
+			for (int i = 0; i < GetMenuItemCount(menu.hMenu); ++i) {
+				MENUITEMINFOW item{sizeof(item)};
+				item.fMask = MIIM_DATA | MIIM_STATE;
+				RECT row{};
+				if (!GetMenuItemInfoW(menu.hMenu, i, TRUE, &item) ||
+				    !GetMenuItemRect(owner_window, menu.hMenu, i, &row)) {
+					continue;
+				}
+				auto *entry = find(item.dwItemData);
+				if (!entry || entry->mark != MenuMark::slider ||
+				    (mouse ? !PtInRect(&row, point)
+				           : !(item.fState & MFS_HILITE))) {
+					continue;
+				}
+				if (mouse) {
+					if (point.y < row.bottom - px(26)) {
+						return true;
+					}
+					dragging = entry;
+					drag_window = f.window;
+					drag_slider(*entry, f.window, point);
+					return true;
+				}
+				int next = entry->position;
+				switch (message.wParam) {
+				case VK_LEFT:
+					--next;
+					break;
+				case VK_RIGHT:
+					++next;
+					break;
+				case VK_HOME:
+					next = entry->minimum;
+					break;
+				case VK_END:
+					next = entry->maximum;
+					break;
+				case VK_RETURN:
+				case VK_SPACE:
+					return true;
+				default:
+					return false;
+				}
+				change_slider(*entry, next, f.window);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static LRESULT CALLBACK input_hook(int code, WPARAM wp, LPARAM lp) noexcept
+	{
+		if (code == MSGF_MENU && tracking) {
+			try {
+				if (tracking->slider_input(
+						*reinterpret_cast<const MSG *>(lp))) {
+					return 1;
+				}
+			} catch (...) {
+				tracking->input_error = std::current_exception();
+				EndMenu();
+				return 1;
+			}
+		}
+		return CallNextHookEx(nullptr, code, wp, lp);
+	}
 
 	bool owns(HMENU menu) const noexcept
 	{
@@ -558,9 +703,16 @@ struct TrayMenu::Impl {
 		struct Session {
 			Impl &self;
 			HHOOK hook{};
+			HHOOK filter{};
 
 			~Session()
 			{
+				if (filter) {
+					UnhookWindowsHookEx(filter);
+				}
+				self.dragging = nullptr;
+				self.drag_window = nullptr;
+				self.owner_window = nullptr;
 				if (hook) {
 					UnhookWindowsHookEx(hook);
 				}
@@ -574,10 +726,19 @@ struct TrayMenu::Impl {
 		} session{*this};
 
 		tracking = this;
+		owner_window = owner;
+		input_error = nullptr;
 		session.hook = SetWindowsHookExW(WH_CALLWNDPROC, menu_hook, nullptr,
 		                                 GetCurrentThreadId());
-		return static_cast<UINT>(TrackPopupMenuEx(root.value, flags, anchor.x,
-		                                          anchor.y, owner, nullptr));
+		session.filter = SetWindowsHookExW(WH_MSGFILTER, input_hook, nullptr,
+		                                   GetCurrentThreadId());
+		check_win(session.hook && session.filter, "Initialize menu controls");
+		const auto selected = static_cast<UINT>(TrackPopupMenuEx(
+			root.value, flags, anchor.x, anchor.y, owner, nullptr));
+		if (input_error) {
+			std::rethrow_exception(input_error);
+		}
+		return selected;
 	}
 
 	void append(HMENU menu, UINT id, std::wstring label, Role role,
@@ -593,6 +754,8 @@ struct TrayMenu::Impl {
 		e.child = child;
 		e.role = role;
 		e.glyph = glyph;
+		e.id = id;
+		e.menu_position = static_cast<UINT>(GetMenuItemCount(menu));
 		e.mark = mark;
 		e.spoken = e.label + (e.value.empty() ? L"" : L", " + e.value);
 		e.accessibility = {MSAA_MENU_SIG, static_cast<DWORD>(e.spoken.size()),
@@ -825,6 +988,32 @@ void TrayMenu::item(HMENU menu, UINT id, const std::wstring &label,
 	              nullptr, enabled);
 }
 
+void TrayMenu::slider(HMENU menu, UINT id, const std::wstring &label,
+                      int minimum, int maximum, int value,
+                      std::function<void(int)> changed)
+{
+	check_win(maximum > minimum, "Invalid slider range");
+	value = std::clamp(value, minimum, maximum);
+	if (!impl_->custom) {
+		const auto choices = submenu(menu, label, MenuGlyph::none,
+		                             std::to_wstring(value) + L" px");
+		for (int position = minimum; position <= maximum; ++position) {
+			item(choices, id + position, std::to_wstring(position) + L" px",
+			     MenuMark::radio, position == value);
+		}
+		return;
+	}
+	impl_->append(menu, id, label, Role::item, MenuGlyph::none,
+	              MenuMark::slider, false, std::to_wstring(value) + L" px");
+	auto &entry = *impl_->entries.back();
+	entry.minimum = minimum;
+	entry.maximum = maximum;
+	entry.position = value;
+	entry.changed = std::move(changed);
+	entry.height = static_cast<UINT>(
+		std::max(impl_->px(52), impl_->body_height * 2 + impl_->px(16)));
+}
+
 bool TrayMenu::measure(MEASUREITEMSTRUCT &item) const noexcept
 {
 	const auto *entry = impl_->find(item.itemData);
@@ -867,6 +1056,37 @@ bool TrayMenu::draw(const DRAWITEMSTRUCT &item) const noexcept
 			RECT dot{x, cy, x + std::max(1, px(1)), cy + std::max(1, px(1))};
 			FillRect(dc, &dot, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
 		}
+		return true;
+	}
+	if (e->mark == MenuMark::slider) {
+		SelectObject(dc, s.body.value);
+		SetTextColor(dc, hot ? c.accent : c.text);
+		RECT label{r.left + px(12), r.top + px(4), r.right - px(12),
+		           r.top + px(8) + s.body_height};
+		DrawTextW(dc, e->label.c_str(), -1, &label,
+		          DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+		const auto track = s.slider_track(r);
+		const int thumb =
+			track.left +
+			static_cast<int>(static_cast<long long>(track.right - track.left) *
+		                     (e->position - e->minimum) /
+		                     (e->maximum - e->minimum));
+		for (int x = track.left; x < track.right; x += std::max(1, px(4))) {
+			RECT cell{x, track.top,
+			          std::min<LONG>(x + std::max(1, px(2)), track.right),
+			          track.bottom};
+			SetDCBrushColor(dc, x <= thumb ? c.muted : c.track);
+			FillRect(dc, &cell, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		}
+		RECT handle{thumb - px(2), track.top - px(4), thumb + px(2),
+		            track.bottom + px(4)};
+		SetDCBrushColor(dc, c.text);
+		FillRect(dc, &handle, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		RECT value{track.right + px(8), r.bottom - px(24), r.right - px(12),
+		           r.bottom - px(4)};
+		SetTextColor(dc, c.muted);
+		DrawTextW(dc, e->value.c_str(), -1, &value,
+		          DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX);
 		return true;
 	}
 	if (hot || (active && e->mark != MenuMark::toggle)) {

@@ -454,6 +454,7 @@ struct Renderer::Impl {
 
 	void configure_particles(MonitorScene &scene)
 	{
+		scene.simulation.set_flake_size(settings.flake_size);
 		scene.simulation.configure(
 			screen_rect(scene.display.bounds), scene.display.scale,
 			particles_per_monitor(settings.density, monitors.size()),
@@ -1078,11 +1079,23 @@ void Renderer::rebuild_scene(const std::vector<Display> &displays,
 void Renderer::set_settings(Settings settings)
 {
 	const bool density_changed = impl_->settings.density != settings.density;
+	const bool size_changed = impl_->settings.flake_size != settings.flake_size;
 	impl_->settings = settings;
 	for (auto &s : impl_->monitors) {
 		if (density_changed) {
 			impl_->configure_particles(*s);
 		} else {
+			if (size_changed) {
+				s->simulation.set_flake_size(settings.flake_size);
+				const auto particles = s->simulation.particles();
+				for (std::size_t i = 0; i < particles.size(); ++i) {
+					const float scale =
+						particles[i].size / static_cast<float>(sprite_size);
+					check(s->particles[i].visual->SetTransform(
+							  D2D1::Matrix3x2F::Scale(scale, scale)),
+					      "Resize snowflake");
+				}
+			}
 			impl_->move_particles(*s);
 		}
 	}

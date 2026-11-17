@@ -38,6 +38,7 @@ Settings SettingsStore::load() const
 	s.density = static_cast<Density>(read(L"Density", 2));
 	s.wind = static_cast<Wind>(read(L"Wind", 1));
 	s.fps = read(L"FPS", 30);
+	s.flake_size = read(L"FlakeSize", 6);
 	s.height = read(L"Height", 22);
 	s.layer = static_cast<Layer>(read(L"Layer", 0));
 	s.theme = static_cast<Theme>(read(L"Theme", 0));
@@ -67,6 +68,7 @@ void SettingsStore::save(const Settings &s) const
 	write(L"Density", static_cast<int>(s.density));
 	write(L"Wind", static_cast<int>(s.wind));
 	write(L"FPS", s.fps);
+	write(L"FlakeSize", s.flake_size);
 	write(L"Height", s.height);
 	write(L"Layer", static_cast<int>(s.layer));
 	write(L"Theme", static_cast<int>(s.theme));

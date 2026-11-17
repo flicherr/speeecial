@@ -73,10 +73,22 @@ void exercise(MenuTheme theme, Canvas &canvas, Language language)
 	          MenuGlyph::pause, tr(Text::show_effects));
 	menu.item(root, 110, tr(Text::exit), MenuMark::none, false,
 	          MenuGlyph::exit);
+	int slider_changes = 0;
+	menu.slider(root, 520, tr(Text::flake_size), 2, 12, 6,
+	            [&](int) { ++slider_changes; });
+	require(slider_changes == 0,
+	        "Constructing a slider must not change settings");
 	require(item(root, 2).hSubMenu == child, "Submenu ownership lost");
 	require(item(child, 1).wID == 202 && (item(child, 1).fState & MFS_CHECKED), "Selected radio command lost");
 	require(item(root, 3).wID == 114 && (item(root, 3).fState & MFS_CHECKED), "Toggle command lost");
 	if (!menu.styled()) {
+		const auto choices = item(root, 7).hSubMenu;
+		require(choices && GetMenuItemCount(choices) == 11,
+		        "Native accessibility mode must offer all size choices");
+		require(item(choices, 0).wID == 522 && item(choices, 10).wID == 532 &&
+		            (item(choices, 4).fState & MFS_CHECKED),
+		        "Native size choices must preserve their commands and current "
+		        "value");
 		require(!(item(root, 3).fType & MFT_OWNERDRAW), "Native fallback still requires custom drawing");
 		return;
 	}
@@ -85,6 +97,15 @@ void exercise(MenuTheme theme, Canvas &canvas, Language language)
 	require(HIWORD(mnemonic) == MNC_EXECUTE && LOWORD(mnemonic) == 5,
 	        "Localized keyboard selection failed");
 	require(HIWORD(menu.character(L'?', root)) == MNC_IGNORE, "Unknown key selects a command");
+	MEASUREITEMSTRUCT slider_size{};
+	slider_size.CtlType = ODT_MENU;
+	slider_size.itemData = item(root, 7).dwItemData;
+	MEASUREITEMSTRUCT normal_size{};
+	normal_size.CtlType = ODT_MENU;
+	normal_size.itemData = item(root, 3).dwItemData;
+	require(menu.measure(slider_size) && menu.measure(normal_size) &&
+	            slider_size.itemHeight > normal_size.itemHeight,
+	        "The slider must reserve separate lines for its caption and track");
 	const auto old_font = GetCurrentObject(canvas.dc, OBJ_FONT);
 	const auto old_pen = GetCurrentObject(canvas.dc, OBJ_PEN);
 	const auto old_brush = GetCurrentObject(canvas.dc, OBJ_BRUSH);

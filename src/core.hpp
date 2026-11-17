@@ -21,6 +21,7 @@ struct Settings {
 	Theme theme = Theme::system;
 	Language language = Language::system;
 	int fps = 30, height = 22;
+	int flake_size = 6; // Mean snowflake diameter in logical pixels, 2..12.
 	bool accumulate = true, windows = true, collapse = true, shake = true;
 	bool cursor = false, show_capture = true, melt = false;
 	bool pause_fullscreen = true, pause_battery = false;
@@ -132,6 +133,7 @@ class Simulation {
 	               std::size_t debris_slots);
 	void update(float dt, const Settings &settings, Landscape &landscape,
 	            Cursor cursor);
+	void set_flake_size(int mean_size) noexcept;
 	Debris *emit(const Emission &emission) noexcept;
 	void transfer_outside(std::span<Simulation *> destinations) noexcept;
 	void clear_debris() noexcept;
@@ -160,6 +162,7 @@ class Simulation {
 	std::mt19937 random_;
 	Rect bounds_{0, 0, 1, 1};
 	float scale_ = 1, time_ = 0;
+	int flake_size_ = 6;
 	std::size_t next_debris_ = 0;
 	std::uint32_t generation_ = 1;
 	std::vector<Particle> particles_;

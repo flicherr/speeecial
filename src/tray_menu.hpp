@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <windows.h>
@@ -27,7 +28,7 @@ enum class MenuGlyph {
 	theme,
 	language
 };
-enum class MenuMark { none, toggle, radio, action };
+enum class MenuMark { none, toggle, radio, action, slider };
 enum class MenuTheme { automatic, light, dark, native };
 
 // A native HMENU tree with scoped GDI resources. USER32 retains navigation,
@@ -53,6 +54,9 @@ class TrayMenu {
 	          MenuGlyph glyph = MenuGlyph::none, const std::wstring &value = {},
 	          bool enabled = true);
 	bool measure(MEASUREITEMSTRUCT &item) const noexcept;
+	// Native accessibility mode uses a submenu with numeric choices id+value.
+	void slider(HMENU menu, UINT id, const std::wstring &label, int minimum,
+	            int maximum, int value, std::function<void(int)> changed);
 	bool draw(const DRAWITEMSTRUCT &item) const noexcept;
 	LRESULT character(wchar_t key, HMENU menu) const noexcept;
 

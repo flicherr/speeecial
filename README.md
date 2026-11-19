@@ -1,7 +1,7 @@
 <p align="center">
   <img src="resources/speeecial.svg" width="72" height="72" alt="Ледяная звезда speeecial">
 </p>
-<h1 align="center">speeecial</h1>
+<h1 align="center">speeecial — desktop snow for Windows</h1>
 <p align="center"><strong>snow desktop</strong> · немного зимы на рабочем столе Windows</p>
 
 <p align="center"><strong>Русский</strong> · <a href="README.en.md">English</a></p>

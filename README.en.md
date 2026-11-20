@@ -1,16 +1,18 @@
 <p align="center">
   <img src="resources/speeecial.svg" width="72" height="72" alt="speeecial ice star">
 </p>
-<h1 align="center">speeecial</h1>
-<p align="center"><strong>snow desktop</strong> · a little winter on your Windows desktop</p>
+<h1 align="center">speeecial — desktop snow for Windows</h1>
+<p align="center"><strong>snowfall desktop</strong> · a little winter on your Windows desktop</p>
+
+<p align="center"><strong><a href="https://github.com/flicherr/speeecial/releases/latest">Download for Windows x64</a></strong></p>
 
 <p align="center"><a href="README.md">Russian</a> · <strong>English</strong></p>
 
 Snowflakes drift across your screen, and snowbanks grow along the top edges of windows and the taskbar. Minimize a window and its snow falls away. Move it sharply to shake off part of its snow cap.
 
-The app lives in the system tray, with every setting available from one compact menu. Snow overlays let clicks pass through and keep your windows usable.
+[![speeecial demo: snowfall and snowbanks on the desktop](docs/speeecial-preview.webp)](docs/speeecial-preview.mp4)
 
-![English speeecial menu in light and dark themes](docs/menu-preview.en.png)
+The app lives in the system tray, with every setting available from one compact menu. Snow overlays let clicks pass through and keep your windows usable.
 
 ## Features
 
@@ -26,6 +28,8 @@ The app lives in the system tray, with every setting available from one compact 
 - **Menu language.** Russian or English, with manual selection. Uses the Windows display language by default, falling back to English for other languages.
 
 Snow effects work offline. An internet connection is only needed to check for and download updates; automatic checks can be disabled. No account, installer, or administrator rights are required.
+
+![English speeecial menu in light and dark themes](docs/menu-preview.en.png)
 
 ## Getting started
 

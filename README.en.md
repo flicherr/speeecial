@@ -10,7 +10,11 @@
 
 Snowflakes drift across your screen, and snowbanks grow along the top edges of windows and the taskbar. Minimize a window and its snow falls away. Move it sharply to shake off part of its snow cap.
 
-[![speeecial demo: snowfall and snowbanks on the desktop](docs/speeecial-preview.webp)](docs/speeecial-preview.mp4)
+<p align="center">
+  <a href="docs/speeecial-preview.mp4">
+    <img src="docs/speeecial-preview.webp" alt="speeecial demo: snowfall and snowbanks on the desktop">
+  </a>
+</p>
 
 The app lives in the system tray, with every setting available from one compact menu. Snow overlays let clicks pass through and keep your windows usable.
 

@@ -262,6 +262,31 @@ void popup_switching(Renderer &renderer)
 	verify(nullptr);
 	renderer.synchronize_desktop({});
 	verify(nullptr);
+
+	// Reproduce an app rising above an overlay that still has WS_EX_TOPMOST.
+	check_win(SetWindowPos(app, HWND_TOPMOST, 0, 0, 0, 0, flags),
+	          "Raise maximized app above the topmost overlay");
+	const auto app_style = GetWindowLongPtrW(app, GWL_EXSTYLE);
+	const HWND tip = tips[0];
+	check_win(
+		SetWindowPos(tip, HWND_TOPMOST, 0, 0, 0, 0, flags | SWP_SHOWWINDOW),
+		"Keep a native popup above the maximized app");
+	DesktopSnapshot covered;
+	covered.topmost_apps = {app};
+	// The native popup has not arrived in the snapshot. Raising the snow
+	// just above the app should still preserve the popup's order.
+	for (unsigned repeat = 0; repeat < 3; ++repeat) {
+		renderer.synchronize_desktop(covered);
+		verify(tip);
+	}
+	ShowWindow(tip, SW_HIDE);
+	check_win(SetWindowPos(app, HWND_TOPMOST, 0, 0, 0, 0, flags),
+	          "Raise maximized app again after popup dismissal");
+	renderer.synchronize_desktop(covered);
+	verify(nullptr);
+	if (GetWindowLongPtrW(app, GWL_EXSTYLE) != app_style) {
+		throw std::runtime_error("Recovery changed the maximized app's style");
+	}
 }
 
 void shell_layer(Renderer &renderer, const Display &display)

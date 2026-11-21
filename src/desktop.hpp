@@ -49,6 +49,7 @@ struct DesktopSnapshot {
 	                          // order above applications.
 	std::vector<HWND> taskbars; // Shell bands are ordering anchors even before
 	                            // a tooltip appears.
+	std::vector<HWND> topmost_apps;
 	std::optional<GUID> desktop;
 	bool desktop_changed = false;
 	bool full_scan = false;

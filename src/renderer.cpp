@@ -198,9 +198,12 @@ struct Renderer::Impl {
 	float bank_elapsed = 1;
 	bool geometry_dirty = true;
 	std::uint64_t bank_draws = 0, commits = 0, z_order_changes = 0;
+	std::uint64_t z_order_recoveries = 0, z_order_failures = 0;
+	DWORD last_z_order_error = ERROR_SUCCESS;
 	std::size_t popup_count = 0;
 	std::vector<HWND> popup_windows;
 	std::vector<HWND> taskbar_windows;
+	std::vector<HWND> topmost_apps;
 	std::vector<PopupStackEntry> popup_stack;
 	POINT last_cursor{};
 	bool cursor_valid = false, capture_excluded = false,
@@ -293,6 +296,7 @@ struct Renderer::Impl {
 		bank_elapsed = 1;
 		popup_windows.clear();
 		taskbar_windows.clear();
+		topmost_apps.clear();
 		popup_stack.clear();
 		popup_count = 0;
 		cursor_valid = false;
@@ -690,6 +694,31 @@ struct Renderer::Impl {
 		}
 	}
 
+	HWND topmost_app_above(const MonitorScene &scene) const noexcept
+	{
+		if (!scene.visible || topmost_apps.empty()) {
+			return nullptr;
+		}
+		// The worker has already filtered cloaked windows and shell UI. Check
+		// live ordering and geometry only among nearby HWNDs above our layer.
+		const Rect monitor = screen_rect(scene.display.bounds);
+		HWND blocker = nullptr;
+		HWND window = GetWindow(scene.window, GW_HWNDPREV);
+		for (unsigned n = 0; window && n < 128; ++n) {
+			RECT bounds{};
+			if (std::find(topmost_apps.begin(), topmost_apps.end(), window) !=
+			        topmost_apps.end() &&
+			    (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) &&
+			    IsWindowVisible(window) && !IsIconic(window) &&
+			    GetWindowRect(window, &bounds) &&
+			    screen_rect(bounds).intersects(monitor)) {
+				blocker = window;
+			}
+			window = GetWindow(window, GW_HWNDPREV);
+		}
+		return blocker;
+	}
+
 	void order_below_popups(std::span<const HWND> popups)
 	{
 		popup_count = popups.size();
@@ -702,36 +731,56 @@ struct Renderer::Impl {
 			}
 			const bool topmost = (GetWindowLongPtrW(s->window, GWL_EXSTYLE) &
 			                      WS_EX_TOPMOST) != 0;
-			if (!anchor && !s->yielded_z_order && topmost) {
+			const HWND blocker = anchor ? nullptr : topmost_app_above(*s);
+			if (!anchor && !blocker && !s->yielded_z_order && topmost) {
 				continue;
 			}
-			HWND previous = GetWindow(s->window, GW_HWNDPREV);
-			for (unsigned n = 0; previous && n < 128; ++n) {
-				if (std::none_of(monitors.begin(), monitors.end(),
-				                 [&](const auto &other) {
-									 return other->window == previous;
-								 })) {
-					break;
+			if (anchor) {
+				HWND previous = GetWindow(s->window, GW_HWNDPREV);
+				for (unsigned n = 0; previous && n < 128; ++n) {
+					if (std::none_of(monitors.begin(), monitors.end(),
+					                 [&](const auto &other) {
+										 return other->window == previous;
+									 })) {
+						break;
+					}
+					previous = GetWindow(previous, GW_HWNDPREV);
 				}
-				previous = GetWindow(previous, GW_HWNDPREV);
-			}
-			const bool anchor_topmost =
-				anchor &&
-				(GetWindowLongPtrW(anchor, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-			if (anchor && previous == anchor && topmost == anchor_topmost) {
-				s->yielded_z_order = true;
-				continue;
+				const bool anchor_topmost =
+					(GetWindowLongPtrW(anchor, GWL_EXSTYLE) & WS_EX_TOPMOST) !=
+					0;
+				if (previous == anchor && topmost == anchor_topmost) {
+					s->yielded_z_order = true;
+					continue;
+				}
 			}
 			// A non-topmost anchor is allowed only ABOVE the first application.
 			// Stay below shell taskbars and native menus/tooltips, but never
 			// follow a popup underneath an application with the entire
 			// monitor-sized snow layer.
-			if (SetWindowPos(s->window, anchor ? anchor : HWND_TOPMOST, 0, 0, 0,
-			                 0,
+			HWND insert_after = anchor ? anchor : HWND_TOPMOST;
+			if (blocker) {
+				// Keep any shell UI already above the app ahead of the snow,
+				// even if it has not arrived in the worker snapshot yet.
+				const HWND before_blocker = GetWindow(blocker, GW_HWNDPREV);
+				if (before_blocker == s->window) {
+					continue; // The window moved during the lookup.
+				}
+				if (before_blocker &&
+				    (GetWindowLongPtrW(before_blocker, GWL_EXSTYLE) &
+				     WS_EX_TOPMOST)) {
+					insert_after = before_blocker;
+				}
+			}
+			if (SetWindowPos(s->window, insert_after, 0, 0, 0, 0,
 			                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
 			                     SWP_NOOWNERZORDER)) {
 				++z_order_changes;
+				z_order_recoveries += blocker != nullptr;
 				s->yielded_z_order = anchor != nullptr;
+			} else {
+				last_z_order_error = GetLastError();
+				++z_order_failures;
 			}
 		}
 	}
@@ -1129,6 +1178,7 @@ void Renderer::synchronize_desktop(const DesktopSnapshot &snapshot,
 	impl_->follow_desktop(snapshot.desktop);
 	impl_->popup_windows = snapshot.popups;
 	impl_->taskbar_windows = snapshot.taskbars;
+	impl_->topmost_apps = snapshot.topmost_apps;
 	impl_->order_below_popups(impl_->popup_windows);
 	impl_->emit_pending();
 	impl_->geometry_dirty = true;
@@ -1369,6 +1419,9 @@ std::string Renderer::description() const
 		<< "\nFrame/static commits: " << impl_->commits
 		<< "\nNative popups: " << impl_->popup_count
 		<< "\nOverlay Z-order changes: " << impl_->z_order_changes
+		<< "\nOverlay Z-order recoveries: " << impl_->z_order_recoveries
+		<< "\nOverlay Z-order failures: " << impl_->z_order_failures
+		<< " (last Win32 error: " << impl_->last_z_order_error << ')'
 		<< "\nShell taskbars tracked: " << impl_->taskbar_windows.size()
 		<< "\nRendered banks: " << impl_->bank_graphics.size()
 		<< "\nBank BGRA pixel bytes: " << impl_->bank_pixels * 4
@@ -1380,7 +1433,10 @@ std::string Renderer::description() const
 		out << "  " << b.left << ',' << b.top << " / " << b.right - b.left
 			<< 'x' << b.bottom - b.top << " / DPI " << s->display.scale
 			<< " / visible " << s->visible << " / simulation " << s->active
-			<< " / NonRude " << (GetPropW(s->window, L"NonRudeHWND") != nullptr)
+			<< " / HWND visible " << (IsWindowVisible(s->window) != FALSE)
+			<< " / topmost app above "
+			<< (impl_->topmost_app_above(*s) != nullptr) << " / NonRude "
+			<< (GetPropW(s->window, L"NonRudeHWND") != nullptr)
 			<< " / disabled " << !IsWindowEnabled(s->window) << " / topmost "
 			<< ((GetWindowLongPtrW(s->window, GWL_EXSTYLE) & WS_EX_TOPMOST) !=
 		        0)

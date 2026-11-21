@@ -317,6 +317,7 @@ struct DesktopScanner::Impl {
 	std::vector<Blocker> blockers;
 	std::vector<HWND> popups;
 	std::vector<HWND> taskbars;
+	std::vector<HWND> topmost_apps;
 
 	struct BlockerEntry {
 		std::size_t index;
@@ -626,6 +627,7 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 		result.blockers = impl_->blockers;
 		result.popups = impl_->popups;
 		result.taskbars = impl_->taskbars;
+		result.topmost_apps = impl_->topmost_apps;
 		result.desktop = impl_->current_desktop;
 		result.fullscreen_window = impl_->fullscreen_window;
 		impl_->motion_sample(result);
@@ -797,6 +799,10 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 		     ((style & WS_CAPTION) == WS_CAPTION || (style & WS_THICKFRAME) ||
 		      (ex & WS_EX_APPWINDOW)) &&
 		     body.width() >= 100 * scale && body.height() >= 50 * scale);
+		if (candidate && visible && good && !is_taskbar &&
+		    (ex & WS_EX_TOPMOST) && result.topmost_apps.size() < max_surfaces) {
+			result.topmost_apps.push_back(window);
+		}
 		if (it == impl_->records.end()) {
 			if (!candidate || !good || !visible ||
 			    impl_->records.size() >= max_surfaces - 8) {
@@ -870,6 +876,7 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 	impl_->blockers = result.blockers;
 	impl_->popups = result.popups;
 	impl_->taskbars = result.taskbars;
+	impl_->topmost_apps = result.topmost_apps;
 	if (impl_->moving_window && !IsWindow(impl_->moving_window)) {
 		impl_->moving_window = nullptr;
 	}

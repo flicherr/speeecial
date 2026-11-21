@@ -121,15 +121,6 @@ int App::run()
 	if (tray_added_ && renderer_) {
 		acknowledge_update_startup();
 	}
-	// A rollback may still launch the legacy executable until startup has
-	// been acknowledged. Keep its profile untouched until that point.
-	if (!update_startup_pending()) {
-		try {
-			store_.migrate();
-		} catch (const std::exception &error) {
-			report_error(error.what(), false);
-		}
-	}
 	store_.log("speeecial (snow desktop) " SPEEECIAL_VERSION " started");
 	// If already enabled, follow this executable after an upgrade/move.
 	try {

@@ -1,5 +1,4 @@
 #include "settings.hpp"
-#include "migration.hpp"
 #include "win_util.hpp"
 #include <fstream>
 #include <iomanip>
@@ -10,6 +9,7 @@ namespace snow
 namespace
 {
 constexpr auto run_key = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+constexpr auto profile_name = L"speeecial";
 
 struct RegistryKey {
 	HKEY value{};
@@ -30,22 +30,13 @@ SettingsStore::SettingsStore()
 	                           &path),
 	      "SHGetKnownFolderPath");
 	try {
-		directory_ = migration::profile_directory(path);
+		directory_ = std::filesystem::path(path) / profile_name;
 	} catch (...) {
 		CoTaskMemFree(path);
 		throw;
 	}
 	CoTaskMemFree(path);
-}
-
-void SettingsStore::migrate()
-{
-	migration::migrate_profile(directory_);
-}
-
-SettingsStore::SettingsStore(const std::filesystem::path &local)
-	: directory_(migration::profile_directory(local))
-{
+	std::filesystem::create_directories(directory_);
 }
 
 Settings SettingsStore::load() const
@@ -53,7 +44,8 @@ Settings SettingsStore::load() const
 	Settings s;
 	const auto file = directory_ / L"settings.ini";
 	auto read = [&](const wchar_t *name, int fallback) {
-		return migration::read_setting(file, name, fallback);
+		return static_cast<int>(
+			GetPrivateProfileIntW(profile_name, name, fallback, file.c_str()));
 	};
 	s.density = static_cast<Density>(read(L"Density", 2));
 	s.wind = static_cast<Wind>(read(L"Wind", 1));
@@ -87,10 +79,9 @@ void SettingsStore::save(const Settings &s) const
 	}
 	auto write = [&](const wchar_t *name, int value) {
 		const auto text = std::to_wstring(value);
-		check_win(
-			WritePrivateProfileStringW(migration::write_section(directory_),
-		                               name, text.c_str(), temporary.c_str()),
-			"WritePrivateProfileString");
+		check_win(WritePrivateProfileStringW(profile_name, name, text.c_str(),
+		                                     temporary.c_str()),
+		          "WritePrivateProfileString");
 	};
 	write(L"Density", static_cast<int>(s.density));
 	write(L"Wind", static_cast<int>(s.wind));
@@ -143,27 +134,45 @@ bool SettingsStore::autostart()
 		return false;
 	}
 	check(HRESULT_FROM_WIN32(status), "Open autostart registry key");
-	return migration::autostart(key.value);
+	DWORD bytes = 0;
+	const auto registration =
+		RegGetValueW(key.value, nullptr, profile_name, RRF_RT_REG_SZ, nullptr,
+	                 nullptr, &bytes);
+	if (registration == ERROR_FILE_NOT_FOUND) {
+		return false;
+	}
+	check(HRESULT_FROM_WIN32(registration), "Read autostart registry value");
+	return true;
 }
 
 void SettingsStore::set_autostart(bool enabled)
 {
 	RegistryKey key;
-	auto status = RegCreateKeyExW(HKEY_CURRENT_USER, run_key, 0, nullptr, 0,
-	                              KEY_SET_VALUE, nullptr, &key.value, nullptr);
+	const auto status =
+		RegCreateKeyExW(HKEY_CURRENT_USER, run_key, 0, nullptr, 0,
+	                    KEY_SET_VALUE, nullptr, &key.value, nullptr);
 	check(HRESULT_FROM_WIN32(status), "Open autostart registry key");
-	std::wstring command;
-	if (enabled) {
-		std::wstring filename(32768, L'\0');
-		const auto length = GetModuleFileNameW(
-			nullptr, filename.data(), static_cast<DWORD>(filename.size()));
-		if (!length || length >= filename.size()) {
-			throw std::runtime_error(
-				"Cannot resolve executable path for autostart");
+	if (!enabled) {
+		const auto result = RegDeleteValueW(key.value, profile_name);
+		if (result != ERROR_FILE_NOT_FOUND) {
+			check(HRESULT_FROM_WIN32(result),
+			      "Remove autostart registry value");
 		}
-		filename.resize(length);
-		command = L"\"" + filename + L"\"";
+		return;
 	}
-	migration::set_autostart(key.value, enabled, command);
+	std::wstring filename(32768, L'\0');
+	const auto length = GetModuleFileNameW(nullptr, filename.data(),
+	                                       static_cast<DWORD>(filename.size()));
+	if (!length || length >= filename.size()) {
+		throw std::runtime_error(
+			"Cannot resolve executable path for autostart");
+	}
+	filename.resize(length);
+	const auto command = L"\"" + filename + L"\"";
+	check(HRESULT_FROM_WIN32(RegSetValueExW(
+			  key.value, profile_name, 0, REG_SZ,
+			  reinterpret_cast<const BYTE *>(command.c_str()),
+			  static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)))),
+	      "Write autostart registry value");
 }
 }

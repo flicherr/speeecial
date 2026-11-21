@@ -1,5 +1,4 @@
 #include "app.hpp"
-#include "migration.hpp"
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
@@ -7,8 +6,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 		if (auto result = snow::run_update_mode()) {
 			return *result;
 		}
-		snow::migration::InstanceGuard instance_guard;
-		if (!instance_guard) {
+		snow::UniqueHandle instance_mutex(
+			CreateMutexW(nullptr, FALSE, L"Local\\speeecial.Instance.1.0"));
+		const auto error = GetLastError();
+		snow::check_win(instance_mutex.get() != nullptr,
+		                "Create instance mutex");
+		if (error == ERROR_ALREADY_EXISTS) {
 			return 0;
 		}
 		snow::ComApartment com;

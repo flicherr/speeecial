@@ -9,8 +9,6 @@ namespace snow
 class SettingsStore {
   public:
 	SettingsStore();
-	explicit SettingsStore(const std::filesystem::path &local);
-	void migrate();
 	Settings load() const;
 	void save(const Settings &settings) const;
 	void log(const std::string &message) const noexcept;

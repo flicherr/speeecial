@@ -51,11 +51,11 @@ void startup_acknowledgement()
 	acknowledge_update_startup();
 	require(!update_startup_pending() &&
 	            WaitForSingleObject(signal.get(), 0) == WAIT_OBJECT_0,
-	        "Successful acknowledgement must release migration guard");
+	        "Successful acknowledgement must clear pending startup");
 	startup_event = INVALID_HANDLE_VALUE;
 	acknowledge_update_startup();
 	require(update_startup_pending(),
-	        "Failed acknowledgement must keep migration deferred for rollback");
+	        "Failed acknowledgement must keep startup pending for rollback");
 	startup_event = nullptr;
 }
 

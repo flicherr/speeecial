@@ -76,7 +76,7 @@ Select the active mode again to resume normal operation. To remove only accumula
 
 ## Settings and updates
 
-Settings are saved automatically to `%LOCALAPPDATA%\speeecial\settings.ini`. Open the folder through **Diagnostics → Settings and log folder**. Profiles from earlier versions migrate automatically. If the new folder already exists, its settings take priority and the previous folder is left untouched. If migration fails, the app retains access to the existing profile and retries on the next launch.
+Settings are saved automatically to `%LOCALAPPDATA%\speeecial\settings.ini`. Open the folder through **Diagnostics → Settings and log folder**. Settings in the old `%LOCALAPPDATA%\SnowDesk` folder are no longer migrated automatically.
 
 Open **Updates → Check for updates**. If a newer version is available, an **Update to …** command appears: the app downloads the file, verifies it, and restarts. Automatic checks are enabled by default and run at startup at most once a day; installation is never automatic. Only stable releases are considered.
 

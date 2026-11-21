@@ -11,8 +11,8 @@
 Snowflakes drift across your screen, and snowbanks grow along the top edges of windows and the taskbar. Minimize a window and its snow falls away. Move it sharply to shake off part of its snow cap.
 
 <p align="center">
-  <a href="docs/speeecial-preview.mp4">
-    <img src="docs/speeecial-preview.webp" alt="speeecial demo: snowfall and snowbanks on the desktop">
+  <a href="docs/speeecial-preview-en.mp4">
+    <img src="docs/speeecial-preview-en.webp" alt="speeecial demo: snowfall and snowbanks on the desktop">
   </a>
 </p>
 

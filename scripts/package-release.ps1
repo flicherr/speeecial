@@ -29,11 +29,6 @@ try {
     $zip = Join-Path $destination "speeecial-$releaseVersion-windows-x64.zip"
     Compress-Archive -LiteralPath $zipInput -DestinationPath $zip -Force
 } finally { Remove-Item -LiteralPath $zipInput }
-$hashes = @($asset, $zip) | ForEach-Object {
-    $hash = Get-FileHash -LiteralPath $_ -Algorithm SHA256
-    '{0}  {1}' -f $hash.Hash.ToLowerInvariant(), (Split-Path -Leaf $_)
-}
-$hashes | Set-Content -LiteralPath (Join-Path $destination 'SHA256SUMS.txt') -Encoding ascii
 Write-Host "Release tag: v$releaseVersion"
 Write-Host "Upload assets from: $destination"
 Write-Host 'Keep speeecial-windows-x64.exe as a separate release asset; ZIP alone cannot be installed by the updater.'

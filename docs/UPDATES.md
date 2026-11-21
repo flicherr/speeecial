@@ -2,6 +2,26 @@
 
 Источник: [flicherr/speeecial](https://github.com/flicherr/speeecial). Клиент обращается к `GET /repos/flicherr/speeecial/releases/latest` без токена. Черновики, prerelease и версии не новее текущей не устанавливаются. Поддерживаются теги `vX.Y.Z` и `X.Y.Z`, сравнение числовое.
 
+## Подготовка релиза в GitHub Actions
+
+1. Обнови `SPEEECIAL_VERSION` в `src/version.hpp` и добавь раздел `## X.Y.Z` в `CHANGELOG.md`.
+2. После сохранения изменений создай и отправь тег `vX.Y.Z`. Для ручного запуска `release.yml` выбери этот же тег в списке **Run workflow** и передай его через параметр `tag`. Эквивалент CLI: `gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z`. Контекст workflow должен совпадать с тегом: GitHub записывает в сертификат attestation коммит и ref запуска, а не произвольного checkout.
+3. Workflow проверит точное совпадение тега с заголовком версии и коммитом запуска, извлечёт описание из changelog и вызовет общий `build.yml`. Выполняются Windows-сборка, переносимые тесты на обеих ОС, Windows-тесты меню и обновления, упаковка. В том же Windows-задании после упаковки `actions/attest` создаёт и сохраняет в GitHub криптографическое подтверждение происхождения EXE и ZIP.
+4. После успешных проверок отдельное задание проверит attestation каждого файла: подпись GitHub, workflow `build.yml`, коммит исходников и сборщика, тег и использование hosted runner. Только затем оно создаст **черновик** GitHub Release с двумя файлами: `speeecial-windows-x64.exe` и `speeecial-X.Y.Z-windows-x64.zip`. Оно также сверит размеры, URL и SHA-256 загруженных файлов из поля `digest` в GitHub API. Если тег переместился за время сборки, создание релиза прервётся.
+5. Скачай и проверь сборку на интерактивном рабочем столе Windows. После ручных проверок опубликуй черновик как стабильный релиз; для нового обновления он должен стать Latest. Пока релиз остаётся черновиком, приложение его игнорирует.
+
+Публикация разрешена только для `flicherr/speeecial`. Повторный запуск может продолжить существующий черновик, если уже загруженные файлы полностью совпадают. При несовпадении требуется проверить черновик и устранить конфликт перед повтором. Уже опубликованные релизы workflow не изменяет. Обычные сборочные задания получают только `contents: read`; релизная Windows-сборка дополнительно получает `id-token: write` и `attestations: write`. Задание работы с черновиком получает `contents: write` и `attestations: read` и не запускает собранные EXE. При ошибке создания или проверки attestation релизная цепочка останавливается.
+
+Встроенный updater использует SHA-256 из `assets[].digest` в GitHub API. Attestation проверяется релизным workflow и доступна для самостоятельной проверки через GitHub CLI. Authenticode-подпись EXE этим процессом не создаётся.
+
+Проверить скачанный EXE можно командой (для ZIP укажи соответствующий путь):
+
+```powershell
+gh attestation verify speeecial-windows-x64.exe --repo flicherr/speeecial --signer-workflow flicherr/speeecial/.github/workflows/build.yml --source-ref refs/tags/vX.Y.Z --source-digest <SHA-коммита-тега> --deny-self-hosted-runners
+```
+
+Требуется точный SHA коммита тега, а не SHA аннотированного объекта Git tag. Attestation хранится в GitHub отдельно от EXE и ZIP и проверяет хеш скачанного файла. Подробности: [artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations), [параметры проверки GitHub CLI](https://cli.github.com/manual/gh_attestation_verify).
+
 ## Поведение клиента
 
 - Проверка при запуске включена по умолчанию; не чаще одного раза в 24 часа. Время последней попытки хранится даже после сетевой ошибки. Ручная команда обходит интервал. Изменение системных часов назад сбрасывает ограничение до новой попытки.

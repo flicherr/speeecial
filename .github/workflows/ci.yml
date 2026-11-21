@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit or tag to build; defaults to the triggering commit.
+        required: false
+        type: string
+        default: ''
+    outputs:
+      artifact-name:
+        description: Actions artifact containing the Windows release files.
+        value: ${{ jobs.checks.outputs.artifact-name }}
+      artifact-id:
+        description: Immutable artifact ID for this build attempt.
+        value: ${{ jobs.checks.outputs.artifact-id }}
+      version:
+        description: Application version read from the checked-out source.
+        value: ${{ jobs.checks.outputs.version }}
+      commit:
+        description: Exact commit used for the Windows build.
+        value: ${{ jobs.checks.outputs.commit }}
+
+permissions:
+  contents: read
+
+# Callers with an explicit ref keep their run. Branch and PR checks cancel
+# outdated runs without cancelling release builds in the shared workflow.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ inputs.ref && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ inputs.ref == '' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+
+jobs:
+  checks:
+    name: Build and test
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ inputs.ref || github.sha }}

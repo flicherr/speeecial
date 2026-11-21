@@ -1,0 +1,176 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact source commit to build.
+        required: true
+        type: string
+      attest:
+        description: Create build provenance for release files.
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      artifact-name:
+        description: Actions artifact containing the Windows release files.
+        value: ${{ jobs.windows.outputs.artifact-name }}
+      artifact-id:
+        description: Immutable artifact ID for this build attempt.
+        value: ${{ jobs.windows.outputs.artifact-id }}
+      version:
+        description: Application version read from the checked-out source.
+        value: ${{ jobs.windows.outputs.version }}
+      commit:
+        description: Exact commit used for the Windows build.
+        value: ${{ jobs.windows.outputs.commit }}
+
+jobs:
+  windows:
+    name: Windows / MSVC / Release x64
+    runs-on: windows-2022
+    timeout-minutes: 20
+    # Inherit caller permissions: CI is read-only; releases can attest.
+    outputs:
+      artifact-name: speeecial-windows-x64
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      version: ${{ steps.metadata.outputs.version }}
+      commit: ${{ steps.metadata.outputs.commit }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Read build metadata
+        id: metadata
+        env:
+          ATTEST_RELEASE: ${{ inputs.attest }}
+        run: |
+          $header = Get-Content -LiteralPath src/version.hpp -Raw
+          $versionMatch = [regex]::Match(
+              $header,
+              '(?m)^#define SPEEECIAL_VERSION "([0-9]+\.[0-9]+\.[0-9]+)"\r?$')
+          if (-not $versionMatch.Success) {
+              throw 'Cannot read application version from src/version.hpp.'
+          }
+          $commit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve build commit.' }
+          if ($env:ATTEST_RELEASE -eq 'true') {
+              if ($env:GITHUB_REPOSITORY -cne 'flicherr/speeecial' -or $env:GITHUB_EVENT_NAME -cnotin @('push', 'workflow_dispatch')) {
+                  throw 'Release attestations require a trusted release event.'
+              }
+              $tagRef = 'refs/tags/v' + $versionMatch.Groups[1].Value
+              if ($env:GITHUB_REF -cne $tagRef -or $commit -cne $env:GITHUB_SHA) {
+                  throw 'Attestation source must match the workflow tag and commit.'
+              }
+          }
+          "version=$($versionMatch.Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+
+      - name: Enable Windows menu and updater tests
+        run: |
+          cmake --preset windows-msvc `
+            -DSPEEECIAL_WINDOWS_MENU_TESTS=ON `
+            -DSPEEECIAL_WINDOWS_UPDATE_TESTS=ON `
+            -DSPEEECIAL_WINDOWS_GRAPHICS_TESTS=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
+
+      - name: Build application and run CTest
+        run: .\scripts\build.ps1
+
+      - name: Package Windows release files
+        run: .\scripts\package-release.ps1
+
+      - name: Attest release files
+        if: inputs.attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/${{ steps.metadata.outputs.version }}/speeecial-windows-x64.exe
+            dist/${{ steps.metadata.outputs.version }}/speeecial-${{ steps.metadata.outputs.version }}-windows-x64.zip
+          create-storage-record: false
+
+      - name: Upload Windows release files
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: speeecial-windows-x64
+          path: |
+            dist/${{ steps.metadata.outputs.version }}/speeecial-windows-x64.exe
+            dist/${{ steps.metadata.outputs.version }}/speeecial-${{ steps.metadata.outputs.version }}-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          overwrite: true
+
+      - name: Summarize Windows checks
+        env:
+          BUILD_VERSION: ${{ steps.metadata.outputs.version }}
+          BUILD_COMMIT: ${{ steps.metadata.outputs.commit }}
+        run: |
+          @"
+          ### Windows build
+
+          - Version: $env:BUILD_VERSION
+          - Commit: $env:BUILD_COMMIT
+          - MSVC Release x64 application and release packaging passed.
+          - CTest: portable core, update parser, native menu and updater process tests passed.
+          - Graphics, focus, Z-order, Explorer and DPI scenarios require manual Windows validation.
+          "@ >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload Windows failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostics-windows
+          path: |
+            build/windows-msvc/Testing/Temporary/
+            build/windows-msvc/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true
+
+  linux:
+    name: Linux / GCC / portable core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Configure portable targets
+        run: >-
+          cmake -S . -B build/native
+          -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+
+      - name: Build portable targets
+        run: cmake --build build/native -j 2
+
+      - name: Run portable CTest
+        run: ctest --test-dir build/native --output-on-failure
+
+      - name: Upload Linux failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostics-linux
+          path: |
+            build/native/Testing/Temporary/
+            build/native/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true

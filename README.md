@@ -1,99 +1,97 @@
 <p align="center">
-  <img src="resources/speeecial.svg" width="72" height="72" alt="Ледяная звезда speeecial">
+  <img src="resources/speeecial.svg" width="72" height="72" alt="speeecial ice star">
 </p>
 <h1 align="center">speeecial — desktop snow for Windows</h1>
-<p align="center"><strong>snowfall desktop</strong> · немного зимы на рабочем столе Windows</p>
+<p align="center"><strong>snowfall desktop</strong> · a little winter on your Windows desktop</p>
 
-<p align="center"><strong><a href="https://github.com/flicherr/speeecial/releases/latest">Скачать для Windows x64</a></strong></p>
+<p align="center"><strong><a href="https://github.com/flicherr/speeecial/releases/latest">Download for Windows x64</a></strong></p>
 
-<p align="center"><strong>Русский</strong> · <a href="README.en.md">English</a></p>
+<p align="center"><strong>English</strong> · <a href="README.ru.md">Русский</a></p>
 
-Снежинки летят по экрану, на верхних гранях окон и панели задач растут сугробы. Сверни окно — снег осыплется вниз. Резко передвинь его — часть снежной шапки стряхнётся.
+Snowflakes drift across your screen, and snowbanks grow along the top edges of windows and the taskbar. Minimize a window and its snow falls away. Move it sharply to shake off part of its snow cap.
 
-<p align="center">
-  <a href="docs/speeecial-preview.mp4">
-    <img src="docs/speeecial-preview.webp" alt="Видео работы speeecial: снегопад и сугробы на рабочем столе">
-  </a>
-</p>
+https://github.com/user-attachments/assets/2fd1a2f6-fff7-411b-b3a8-951e975bd669
 
-Приложение живёт в системном трее: все настройки доступны из одного компактного меню. Снежные слои не перехватывают клики и не мешают работать с окнами.
+The app lives in the system tray, with every setting available from one compact menu. Snow overlays let clicks pass through and keep your windows usable.
 
-## Возможности
+## Features
 
-- **Настраиваемый снегопад.** В подменю «Снегопад» два ползунка: уровень («Выключен», «Слабый», «Обычный», «Метель») и средний размер снежинок. Режим меняется сразу и сохраняется при закрытии меню. Снег можно показывать поверх окон или за ними.
-- **Размер снежинок.** В подменю «Снегопад» отдельная строка с ползунком меняет средний размер от 2 до 12 (по умолчанию 6). Перетаскивай ползунок или используй стрелки влево/вправо; размер применяется сразу и сохраняется при закрытии меню. Крупные снежинки быстрее наращивают сугробы.
-- **Снег на окнах и панели задач.** Независимое включение, три значения максимальной толщины и постепенное таяние.
-- **Обвалы и стряхивание.** Снег падает при закрытии и сворачивании окон, осыпается при резком движении и оседает на доступных поверхностях ниже.
-- **Ветер и курсор.** Штиль, слабый или порывистый ветер; по желанию снежинки реагируют на движение указателя.
-- **Несколько мониторов.** Поддержка разных масштабов интерфейса и расположений экранов.
-- **Управление нагрузкой.** Лимит 20, 30, 60, 144 или 240 FPS, автоматическая пауза для полноэкранных приложений и при работе от батареи.
-- **Обновления из GitHub Releases.** Проверка при запуске не чаще раза в сутки, ручная проверка и установка по твоему нажатию — прямо из трея.
-- **Тема меню.** По умолчанию следует теме Windows; светлую или тёмную можно выбрать вручную. Пиксельные рамки, значки и переключатели, обычный читаемый шрифт, выбранные значения рядом с пунктами, управление мышью и клавиатурой.
-- **Язык меню.** Русский или английский, с ручным выбором. По умолчанию используется язык интерфейса Windows; для остальных языков — английский.
+- **Adjustable snowfall.** The **Snowfall** submenu contains two sliders: level (**Off**, **Light**, **Normal**, **Blizzard**) and average snowflake size. Mode changes apply immediately and are saved when the menu closes. Snow can appear in front of windows or behind them.
+- **Snowflake size.** A dedicated slider row in **Snowfall** adjusts the average size from 2 to 12 (default 6). Drag the slider or use the left/right arrow keys; changes apply immediately and are saved when the menu closes. Larger snowflakes build snowbanks faster.
+- **Snow on windows and the taskbar.** Enable each independently, choose from three maximum depths, and let snow melt gradually.
+- **Collapsing and shaken-off snow.** Snow falls when windows close or minimize, shakes loose during sharp movements, and settles on available surfaces below.
+- **Wind and cursor interaction.** Choose calm, gentle, or gusty wind, and optionally let pointer movement affect snowflakes.
+- **Multiple monitors.** Supports different display scales and screen arrangements.
+- **Performance controls.** Limit updates to 20, 30, 60, 144, or 240 FPS, with automatic pauses for fullscreen apps and battery use.
+- **Updates from GitHub Releases.** Checks at startup at most once a day, with manual checks and installation on your command, right from the tray.
+- **Menu themes.** Follows the Windows theme by default, with manual light and dark options. Pixel borders, icons, and switches, a readable font, current values beside menu items, and mouse and keyboard navigation.
+- **Menu language.** Russian or English, with manual selection. Uses the Windows display language by default, falling back to English for other languages.
 
-Снежные эффекты работают без интернета. Подключение нужно только для проверки и загрузки обновлений; автоматическую проверку можно выключить. Учётная запись, установщик и права администратора не требуются.
+Snow effects work offline. An internet connection is only needed to check for and download updates; automatic checks can be disabled. No account, installer, or administrator rights are required.
 
-![Русское меню speeecial в светлой и тёмной теме](docs/menu-preview.png)
+![English speeecial menu in light and dark themes](docs/menu-preview.en.png)
 
-## Как пользоваться
+## Getting started
 
-1. Запусти `speeecial.exe`.
-2. Найди ледяную звезду в системном трее. Windows может поместить её в область скрытых значков.
-3. Нажми на значок левой или правой кнопкой мыши и выбери нужные эффекты.
+1. Run `speeecial.exe`.
+2. Find the ice star in the system tray. Windows may place it in the hidden icons area.
+3. Left-click or right-click the icon and choose your effects.
 
-Для первого знакомства включи **«Снегопад → Метель»** и открой обычное окно с небольшим свободным пространством над ним. Дай снегу накопиться, затем сверни окно.
+To try it out, select **Snowfall → Blizzard** and open a regular window with some space above it. Let snow accumulate, then minimize the window.
 
-## Управление
+## Controls
 
-| Раздел | Что можно настроить |
+The menu supports English and Russian. Choose **Language** to follow the system language (default) or select Russian or English explicitly. Your choice is saved between sessions.
+
+| Section | What you can adjust |
 |---|---|
-| **Снегопад** | Выключить новые снежинки или выбрать слабый, обычный снегопад либо метель |
-| **Расположение** | Показывать летящий снег поверх окон или за ними |
-| **Ветер** | Выбрать штиль, слабый или порывистый ветер |
-| **Сугробы** | Включить снег на окнах и панели задач, обвалы, стряхивание и таяние; выбрать толщину или очистить снег |
-| **Реакция на курсор** | Отклонять снежинки движением указателя |
-| **Производительность** | Ограничить FPS и включить автоматические паузы |
-| **Тема** | Системная (по умолчанию), светлая или тёмная тема меню |
-| **Язык / Language** | Системный (по умолчанию), русский или английский; выбор сохраняется после перезапуска |
-| **Эффекты на снимках экрана** | Управлять видимостью снега в совместимых средствах захвата |
-| **Автозапуск с Windows** | Запускать приложение при входе в систему |
-| **Обновления** | Проверить новую версию, включить автоматическую проверку, установить обновление или открыть релизы |
-| **Диагностика** | Восстановить графику, записать отчёт или открыть папку настроек и журнала |
+| **Snowfall** | Stop new snowflakes or choose light, normal, or blizzard snowfall |
+| **Placement** | Show falling snow in front of windows or behind them |
+| **Wind** | Choose calm, gentle, or gusty wind |
+| **Snowbanks** | Enable snow on windows and the taskbar, collapsing, shaking, and melting; choose the depth or clear the snow |
+| **Cursor interaction** | Deflect snowflakes with pointer movement |
+| **Performance** | Limit FPS and enable automatic pauses |
+| **Theme** | System (default), light, or dark menu theme |
+| **Language** | System (default), Russian, or English |
+| **Effects in screenshots** | Control snow visibility in compatible capture tools |
+| **Start with Windows** | Launch the app when you sign in |
+| **Updates** | Check for a new version, enable automatic checks, install an update, or open the releases page |
+| **Diagnostics** | Restore graphics, save a report, or open the settings and log folder |
 
-Наведи курсор на заголовок меню, чтобы увидеть количество частиц и выбранный лимит FPS.
+Hover over the menu header to see the particle count and selected FPS limit.
 
-### Пауза и остановка
+### Pause and stop
 
-| Действие | Результат |
+| Action | Result |
 |---|---|
-| **Пауза** | Скрывает эффекты; движение снега, накопление и таяние продолжаются |
-| **Остановить** | Скрывает эффекты и замораживает симуляцию, сохраняя накопленный снег |
-| **Выход** | Полностью завершает приложение |
+| **Pause** | Hides effects while snow movement, accumulation, and melting continue |
+| **Stop** | Hides effects and freezes the simulation, preserving accumulated snow |
+| **Exit** | Closes the app completely |
 
-Повторное нажатие на выбранный режим возобновляет обычную работу. Чтобы убрать только уже накопленный снег, используй **«Сугробы → Очистить весь снег»**.
+Select the active mode again to resume normal operation. To remove only accumulated snow, use **Snowbanks → Clear all snow**.
 
-## Настройки и обновление
+## Settings and updates
 
-Параметры сохраняются автоматически в `%LOCALAPPDATA%\speeecial\settings.ini`. Папку можно открыть через **«Диагностика → Папка настроек и журнала»**. Настройки из прежней папки `%LOCALAPPDATA%\SnowDesk` автоматически не переносятся.
+Settings are saved automatically to `%LOCALAPPDATA%\speeecial\settings.ini`. Open the folder through **Diagnostics → Settings and log folder**. Settings in the old `%LOCALAPPDATA%\SnowDesk` folder are no longer migrated automatically.
 
-Открой **«Обновления → Проверить обновления»**. Если доступна новая версия, появится команда **«Обновить до …»**: приложение скачает файл, проверит его и перезапустится. Автоматическая проверка включена по умолчанию и выполняется при запуске не чаще раза в сутки; автоматической установки нет. Учитываются только стабильные релизы.
+Open **Updates → Check for updates**. If a newer version is available, an **Update to …** command appears: the app downloads the file, verifies it, and restarts. Automatic checks are enabled by default and run at startup at most once a day; installation is never automatic. Only stable releases are considered.
 
-Для встроенной установки нужна доступная для записи папка с EXE. Если подходящего файла в релизе нет или Windows запрещает замену, используй **«Обновления → Релизы на GitHub»**: заверши приложение, скачай новую версию и замени EXE вручную. С версий 1.0.9 и старше нужно один раз обновиться вручную.
+Built-in installation requires a writable folder containing the EXE. If the release has no suitable file or Windows prevents replacement, use **Updates → Releases on GitHub**: exit the app, download the new version, and replace the EXE manually. Versions 1.0.9 and earlier require a one-time manual update.
 
-Настройки сохранятся; форма сугробов между запусками не сохраняется. Параметр автоматической проверки хранится отдельно в `%LOCALAPPDATA%\speeecial\updates.ini`. Если автозапуск включён, приложение обновит путь к своему текущему EXE. При неудачном запуске обновления предусмотрен возврат предыдущего EXE.
+Your settings are preserved; snowbank shapes are not saved between sessions. The automatic update check setting is stored separately in `%LOCALAPPDATA%\speeecial\updates.ini`. If startup with Windows is enabled, the app updates the registered path to its current EXE. If an updated version fails to start successfully, the updater can restore the previous EXE.
 
-Для удаления выключи автозапуск, заверши приложение и удали EXE. Папку настроек можно удалить отдельно.
+To uninstall, disable startup with Windows, exit the app, and delete the EXE. You can delete the settings folder separately.
 
-## Совместимость
+## Compatibility
 
-- Windows 10 версии 2004 и новее или Windows 11, x64.
-- Видеокарта с поддержкой Direct3D 11 и стандартный рабочий стол Explorer.
-- Снег на гранях рассчитан на обычные окна. На развёрнутых и полноэкранных окнах снежные шапки не образуются.
-- Сугроб панели задач скрывается вместе с ней. Накопление рассчитано на горизонтальную панель; сторонние оболочки и нестандартные панели отдельно не поддерживаются.
-- Скрытие эффектов на снимках зависит от способа захвата. Оно не гарантирует исключения снега из любого скриншота или видеозаписи.
+- Windows 10 version 2004 or later, or Windows 11, x64.
+- A Direct3D 11-capable graphics card and the standard Explorer desktop.
+- Snow accumulation on window edges is designed for regular windows. Maximized and fullscreen windows do not get snow caps.
+- The taskbar snowbank hides with the taskbar. Accumulation is designed for a horizontal taskbar; third-party shells and custom taskbars are not specifically supported.
+- Hiding effects from captures depends on the capture method. It does not guarantee that snow will be excluded from every screenshot or recording.
 
-Если эффекты перестали отображаться, проверь ручную и автоматическую паузы. Для восстановления отрисовки доступна команда **«Диагностика → Пересоздать графику»**. При сообщении об ошибке можно приложить отчёт из той же группы меню.
+If effects stop appearing, check manual and automatic pauses. Use **Diagnostics → Recreate graphics** to restore rendering. When reporting an error, you can attach a report from the same menu section.
 
 ---
 
-[История изменений](CHANGELOG.md) · [Документация для разработчиков](docs/BUILDING.md) · [Архитектура](docs/ARCHITECTURE.md)
+[Changelog](CHANGELOG.md) · [Developer documentation](docs/BUILDING.md) · [Architecture](docs/ARCHITECTURE.md) (linked documents are in Russian)

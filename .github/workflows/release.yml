@@ -58,6 +58,7 @@ jobs:
         id: source
         env:
           RELEASE_VERSION: ${{ steps.tag.outputs.version }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           $ErrorActionPreference = 'Stop'
           $version = $env:RELEASE_VERSION
@@ -79,8 +80,15 @@ jobs:
               throw "Missing CHANGELOG.md section for $version."
           }
           $notes = $section.Groups['body'].Value.Trim()
-          $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
-          $notes += "`n`nSource commit: $commit`n`n[Build and tests]($runUrl)`n"
+          $details = [regex]::Match($notes, '(?m)^###[ \t]+Details(?:[ \t]+[^\r\n]*)?\r?$')
+          if ($details.Success) {
+              $notes = $notes.Substring(0, $details.Index).Trim()
+              if (-not $notes) {
+                  throw "Empty release notes before '### Details' in CHANGELOG.md section $version. Add a user-facing description before the details heading."
+              }
+          }
+          $changelogUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/blob/$env:RELEASE_TAG/CHANGELOG.md"
+          $notes += "`n`n[Full changelog (Russian)]($changelogUrl)`n"
           $notes | Set-Content -LiteralPath "$env:RUNNER_TEMP/release-notes.md" -Encoding utf8NoBOM
           "commit=$commit" >> $env:GITHUB_OUTPUT
 

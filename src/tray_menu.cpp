@@ -91,6 +91,8 @@ struct Entry {
 	std::function<void(int)> changed;
 	std::vector<std::wstring> values;
 	int value_width = 0;
+	bool is_new = false;
+	int badge_width = 0, badge_height = 0;
 
 	std::wstring slider_value(int slider_position) const
 	{
@@ -102,7 +104,7 @@ struct Entry {
 
 struct Palette {
 	COLORREF background, text, muted, accent, hover, active, line, track, thumb,
-		texture;
+		texture, badge_background, badge_text, badge_border;
 };
 
 Palette palette(bool dark) noexcept
@@ -111,12 +113,14 @@ Palette palette(bool dark) noexcept
 		return {RGB(23, 27, 31),    RGB(232, 241, 247), RGB(150, 174, 188),
 		        RGB(143, 210, 243), RGB(35, 62, 82),    RGB(29, 43, 54),
 		        RGB(88, 116, 134),  RGB(65, 85, 99),    RGB(235, 246, 252),
-		        RGB(26, 31, 36)};
+		        RGB(26, 31, 36),    RGB(68, 51, 26),    RGB(255, 208, 123),
+		        RGB(158, 119, 54)};
 	}
 	return {RGB(247, 250, 252), RGB(34, 48, 58),    RGB(91, 116, 132),
 	        RGB(65, 149, 197),  RGB(218, 238, 249), RGB(233, 244, 250),
 	        RGB(125, 158, 178), RGB(187, 208, 221), RGB(255, 255, 255),
-	        RGB(240, 246, 250)};
+	        RGB(240, 246, 250), RGB(255, 240, 207), RGB(110, 69, 0),
+	        RGB(184, 121, 21)};
 }
 
 bool native_accessibility() noexcept
@@ -150,7 +154,7 @@ struct TrayMenu::Impl {
 	std::vector<std::unique_ptr<Entry>> entries;
 	// Windows SDK RPC headers define small as a macro; use an explicit font
 	// name.
-	Gdi<HFONT> body, title, small_font;
+	Gdi<HFONT> body, title, small_font, badge_font;
 	Gdi<HBITMAP> texture;
 	Gdi<HBRUSH> background;
 	IconHandle icon;
@@ -213,6 +217,8 @@ struct TrayMenu::Impl {
 			std::abs(static_cast<int>(metrics.lfMenuFont.lfHeight)) + px(2));
 		font.lfWeight = FW_SEMIBOLD;
 		title.value = CreateFontIndirectW(&font);
+		font.lfHeight = -px(11);
+		badge_font.value = CreateFontIndirectW(&font);
 		// A tiny cached tile, not a full-size menu bitmap or an animation
 		// timer.
 		BITMAPINFO tile{};
@@ -248,7 +254,7 @@ struct TrayMenu::Impl {
 			background.value = CreateSolidBrush(colors.background);
 		}
 		check_win(body.value && title.value && small_font.value &&
-		              background.value,
+		              badge_font.value && background.value,
 		          "Create tray menu resources");
 		icon.value = static_cast<HICON>(LoadImageW(
 			instance, MAKEINTRESOURCEW(101), IMAGE_ICON, px(20), px(20), 0));
@@ -753,7 +759,7 @@ struct TrayMenu::Impl {
 	void append(HMENU menu, UINT id, std::wstring label, Role role,
 	            MenuGlyph glyph, MenuMark mark, bool checked,
 	            std::wstring value = {}, HMENU child = nullptr,
-	            bool enabled = true)
+	            bool enabled = true, bool is_new = false)
 	{
 		auto entry = std::make_unique<Entry>();
 		auto &e = *entry;
@@ -766,11 +772,13 @@ struct TrayMenu::Impl {
 		e.id = id;
 		e.menu_position = static_cast<UINT>(GetMenuItemCount(menu));
 		e.mark = mark;
-		e.spoken = e.label + (e.value.empty() ? L"" : L", " + e.value);
+		e.is_new = is_new;
+		e.spoken = e.label + (is_new ? L", new" : L"") +
+		           (e.value.empty() ? L"" : L", " + e.value);
 		e.accessibility = {MSAA_MENU_SIG, static_cast<DWORD>(e.spoken.size()),
 		                   e.spoken.data()};
-		std::wstring native_text =
-			e.label + (e.value.empty() ? L"" : L"\t" + e.value);
+		std::wstring native_text = e.label + (is_new ? L" [new]" : L"") +
+		                           (e.value.empty() ? L"" : L"\t" + e.value);
 		if (custom) {
 			ScreenDC screen;
 			check_win(screen.value != nullptr, "Measure tray menu");
@@ -788,6 +796,15 @@ struct TrayMenu::Impl {
 			GetTextExtentPoint32W(screen.value, e.value.c_str(),
 			                      static_cast<int>(e.value.size()),
 			                      &value_size);
+			if (is_new) {
+				SelectObject(screen.value, badge_font.value);
+				SIZE badge_size{};
+				GetTextExtentPoint32W(screen.value, L"new", 3, &badge_size);
+				e.badge_width =
+					std::max(px(34), static_cast<int>(badge_size.cx) + px(8));
+				e.badge_height =
+					std::max(px(16), static_cast<int>(badge_size.cy) + px(2));
+			}
 			// Match the actual text origin, control area and value gap in
 			// draw().
 			const int left_padding =
@@ -799,7 +816,8 @@ struct TrayMenu::Impl {
 			const int value_gap = e.value.empty() ? 0 : 12;
 			const int content_width =
 				static_cast<int>(label_size.cx + value_size.cx) +
-				px(left_padding + right_padding + value_gap);
+				px(left_padding + right_padding + value_gap) +
+				(is_new ? px(8) + e.badge_width : 0);
 			e.width = static_cast<UINT>(std::min(
 				width_limit,
 				std::max(px(menu == root.value ? 282 : 208), content_width)));
@@ -808,7 +826,8 @@ struct TrayMenu::Impl {
 				: role == Role::section ? std::max(px(20), body_height + px(3))
 				: role == Role::separator
 					? px(7)
-					: std::max(px(26), body_height + px(8)));
+					: std::max({px(26), body_height + px(8),
+			                    e.badge_height + px(4)}));
 		}
 		MENUITEMINFOW info{sizeof(info)};
 		info.fMask = MIIM_ID | MIIM_FTYPE | MIIM_STATE | MIIM_STRING;
@@ -839,6 +858,38 @@ struct TrayMenu::Impl {
 		                          static_cast<UINT>(GetMenuItemCount(menu)),
 		                          TRUE, &info),
 		          "Add tray item");
+	}
+
+	void draw_badge(HDC dc, RECT bounds, bool disabled) const noexcept
+	{
+		SavedDC saved(dc);
+		if (!saved.state) {
+			return;
+		}
+		const int l = bounds.left, t = bounds.top, r = bounds.right,
+				  b = bounds.bottom, q = px(2);
+		const POINT outline[]{{l + q, t}, {r - q, t}, {r - q, t + q},
+		                      {r, t + q}, {r, b - q}, {r - q, b - q},
+		                      {r - q, b}, {l + q, b}, {l + q, b - q},
+		                      {l, b - q}, {l, t + q}, {l + q, t + q}};
+		Gdi<HRGN> region;
+		region.value = CreatePolygonRgn(
+			outline, static_cast<int>(std::size(outline)), WINDING);
+		if (!region.value) {
+			return;
+		}
+		const auto brush = static_cast<HBRUSH>(GetStockObject(DC_BRUSH));
+		SetDCBrushColor(dc, disabled ? colors.active : colors.badge_background);
+		FillRgn(dc, region.value, brush);
+		SetDCBrushColor(dc, disabled ? colors.line : colors.badge_border);
+		FrameRgn(dc, region.value, brush, std::max(1, px(1)),
+		         std::max(1, px(1)));
+		IntersectClipRect(dc, l + q, t + px(1), r - q, b - px(1));
+		SelectObject(dc, badge_font.value);
+		SetTextColor(dc, disabled ? colors.muted : colors.badge_text);
+		RECT label{l + px(4), t, r - px(4), b};
+		DrawTextW(dc, L"new", 3, &label,
+		          DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
 	}
 
 	void glyph(HDC dc, MenuGlyph kind, int x, int y) const noexcept
@@ -977,13 +1028,13 @@ void TrayMenu::separator(HMENU menu)
 }
 
 HMENU TrayMenu::submenu(HMENU parent, const std::wstring &label,
-                        MenuGlyph glyph, const std::wstring &value)
+                        MenuGlyph glyph, const std::wstring &value, bool is_new)
 {
 	MenuHandle child{CreatePopupMenu()};
 	check_win(child.value != nullptr, "Create tray submenu");
 	impl_->configure(child.value);
 	impl_->append(parent, 0, label, Role::item, glyph, MenuMark::none, false,
-	              value, child.value);
+	              value, child.value, true, is_new);
 	const auto result = child.value;
 	child.value = nullptr;
 	return result;
@@ -1238,8 +1289,21 @@ bool TrayMenu::draw(const DRAWITEMSTRUCT &item) const noexcept
 		SetTextColor(dc, ink);
 	}
 	RECT text{r.left + px(38), r.top, right, r.bottom};
+	RECT badge{};
+	if (e->is_new && right - text.left >= e->badge_width + px(8)) {
+		SIZE extent{};
+		GetTextExtentPoint32W(dc, e->label.c_str(),
+		                      static_cast<int>(e->label.size()), &extent);
+		text.right = std::min<LONG>(right - e->badge_width - px(8),
+		                            text.left + extent.cx);
+		const int x = text.right + px(8), y = cy - e->badge_height / 2;
+		badge = {x, y, x + e->badge_width, y + e->badge_height};
+	}
 	DrawTextW(dc, e->label.c_str(), -1, &text,
 	          DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+	if (badge.right > badge.left) {
+		s.draw_badge(dc, badge, disabled);
+	}
 	// USER32 owns the submenu arrow and its activation area.
 	if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT)) {
 		RECT focus{r.left + px(5), r.top + px(2), r.right - px(5),

@@ -29,6 +29,11 @@ class Updater {
 		std::uint64_t revision = 0;
 		bool manual = false;
 
+		bool update_available() const noexcept
+		{
+			return release.has_value();
+		}
+
 		bool busy() const
 		{
 			return status == Status::checking ||

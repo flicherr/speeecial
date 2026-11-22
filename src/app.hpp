@@ -20,6 +20,7 @@ class App {
   private:
 	LRESULT dispatch(UINT message, WPARAM wparam, LPARAM lparam);
 	void add_tray_icon();
+	void update_tray_icon(bool update_available) noexcept;
 	void show_menu();
 	void update_menu_tip();
 	void close_menu_tip() noexcept;
@@ -38,6 +39,9 @@ class App {
 	HINSTANCE instance_;
 	HWND window_{};
 	HICON icon_{};
+	SIZE icon_size_{};
+	bool icon_update_available_ = false, icon_dark_ = false;
+	bool icon_update_requested_ = false, icon_dirty_ = false;
 	HWND menu_tip_{};
 	HMENU active_menu_{};
 	TrayMenu *styled_menu_{};

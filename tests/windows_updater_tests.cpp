@@ -59,6 +59,72 @@ void startup_acknowledgement()
 	startup_event = nullptr;
 }
 
+void update_indicators()
+{
+	using namespace snow;
+	using Status = Updater::Status;
+	Updater::View initial;
+	for (auto status :
+	     {Status::idle, Status::checking, Status::current, Status::failed}) {
+		initial.status = status;
+		require(!initial.update_available(),
+		        "An unknown release must not show an update indicator");
+	}
+	initial.status = Status::checking;
+	initial.manual = true;
+	const auto json =
+		R"({"tag_name":"v99.0.0","draft":false,"prerelease":false,"assets":[{"name":"speeecial-windows-x64.exe","state":"uploaded","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":4096,"browser_download_url":"https://github.com/flicherr/speeecial/releases/download/v99.0.0/speeecial-windows-x64.exe"}]})";
+	auto available = check_release(initial, [json] { return json; });
+	require(available.status == Status::available &&
+	            available.update_available() &&
+	            available.release->installable() && available.manual &&
+	            !available.busy(),
+	        "A confirmed release must enable the update indicator and install");
+	for (auto status : {Status::available, Status::checking,
+	                    Status::downloading, Status::ready, Status::failed}) {
+		available.status = status;
+		require(available.update_available(),
+		        "A known release must stay marked while busy or after failure");
+		require(
+			available.busy() ==
+				(status == Status::checking || status == Status::downloading ||
+		         status == Status::ready),
+			"Update indicators must not change which states block commands");
+	}
+	available.status = Status::checking;
+	available.manual = false;
+	auto failed_fetch = []() -> std::string {
+		throw std::runtime_error("Network unavailable");
+	};
+	const auto failed = check_release(available, failed_fetch);
+	require(failed.status == Status::failed && failed.update_available() &&
+	            failed.release->tag == "v99.0.0" && !failed.manual &&
+	            !failed.busy(),
+	        "A failed recheck must retain the known release and permit retry");
+	const auto malformed = check_release(available, [] { return "{broken}"; });
+	require(malformed.status == Status::failed &&
+	            malformed.update_available() &&
+	            malformed.release->tag == "v99.0.0",
+	        "Invalid metadata must not erase an earlier confirmed update");
+	const auto first_failure = check_release(initial, failed_fetch);
+	require(first_failure.status == Status::failed &&
+	            !first_failure.update_available() && first_failure.manual,
+	        "A first-check failure must not invent a release");
+	const auto current = check_release(available, [] {
+		return "{\"tag_name\":\"v" SPEEECIAL_VERSION
+			   "\",\"draft\":false,\"prerelease\":false,\"assets\":[]}";
+	});
+	require(current.status == Status::current && !current.update_available() &&
+	            !current.busy(),
+	        "A successful current-version response must clear the indicator");
+	const auto manual = check_release(initial, [] {
+		return R"({"tag_name":"v99.0.1","draft":false,"prerelease":false,"assets":[]})";
+	});
+	require(manual.status == Status::available && manual.update_available() &&
+	            !manual.release->installable(),
+	        "Manual-download releases must also show the update indicator");
+}
+
 void scenario(const std::filesystem::path &root,
               const std::filesystem::path &old_fixture,
               const std::filesystem::path &new_fixture, int mode)
@@ -162,6 +228,7 @@ int wmain(int argc, wchar_t **argv)
 		}
 		require(argc == 3, "Pass old and new fixture executables");
 		startup_acknowledgement();
+		update_indicators();
 		wchar_t temp[32768]{};
 		GetTempPathW(32768, temp);
 		const auto root = std::filesystem::path(temp) /

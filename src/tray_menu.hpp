@@ -49,7 +49,7 @@ class TrayMenu {
 	void separator(HMENU menu);
 	HMENU submenu(HMENU parent, const std::wstring &label,
 	              MenuGlyph glyph = MenuGlyph::none,
-	              const std::wstring &value = {});
+	              const std::wstring &value = {}, bool is_new = false);
 	void item(HMENU menu, UINT id, const std::wstring &label,
 	          MenuMark mark = MenuMark::none, bool checked = false,
 	          MenuGlyph glyph = MenuGlyph::none, const std::wstring &value = {},

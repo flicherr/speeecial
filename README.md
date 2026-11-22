@@ -23,7 +23,7 @@ The app lives in the system tray, with every setting available from one compact 
 - **Wind and cursor interaction.** Choose calm, gentle, or gusty wind, and optionally let pointer movement affect snowflakes.
 - **Multiple monitors.** Supports different display scales and screen arrangements.
 - **Performance controls.** Limit updates to 20, 30, 60, 144, or 240 FPS, with automatic pauses for fullscreen apps and battery use.
-- **Updates from GitHub Releases.** Checks at startup at most once a day, with manual checks and installation on your command, right from the tray.
+- **Updates from GitHub Releases.** Checks at startup at most once a day, with manual checks and installation on your command, right from the tray. An amber dot on the tray icon and a `new` badge beside **Updates** indicate an available update.
 - **Menu themes.** Follows the Windows theme by default, with manual light and dark options. Pixel borders, icons, and switches, a readable font, current values beside menu items, and mouse and keyboard navigation.
 - **Menu language.** Russian or English, with manual selection. Uses the Windows display language by default, falling back to English for other languages.
 

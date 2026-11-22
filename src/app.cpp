@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "localization.hpp"
+#include "tray_icon.hpp"
 #include "version.hpp"
 #include <algorithm>
 #include <commctrl.h>
@@ -21,6 +22,16 @@ constexpr UINT message_tray = WM_APP + 1;
 constexpr UINT message_policy = WM_APP + 3;
 constexpr UINT_PTR timer_frame = 1, timer_policy = 2, timer_rebuild = 3, timer_desktop = 4, timer_menu_tip = 5;
 constexpr UINT icon_id = 1;
+
+bool dark_taskbar() noexcept
+{
+	DWORD light = 1, bytes = sizeof(light);
+	RegGetValueW(
+		HKEY_CURRENT_USER,
+		L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+		L"SystemUsesLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &bytes);
+	return light == 0;
+}
 
 enum Command : UINT {
 	cmd_pause = 100,
@@ -102,11 +113,6 @@ int App::run()
 		check_win(FALSE, "Create control window");
 	}
 	taskbar_created_ = RegisterWindowMessageW(L"TaskbarCreated");
-	icon_ = static_cast<HICON>(LoadImageW(instance_, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
-	                                      GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
-	if (!icon_) {
-		check_win(FALSE, "Load tray icon");
-	}
 	add_tray_icon();
 	tracker_ = std::make_unique<DesktopTracker>(window_);
 	last_desktop_ = std::chrono::steady_clock::now();
@@ -178,6 +184,8 @@ int App::run()
 
 void App::add_tray_icon()
 {
+	update_tray_icon(updater_ && updater_->view().update_available());
+	check_win(icon_ != nullptr, "Load tray icon");
 	NOTIFYICONDATAW data{sizeof(data)};
 	data.hWnd = window_;
 	data.uID = icon_id;
@@ -191,6 +199,50 @@ void App::add_tray_icon()
 		Shell_NotifyIconW(NIM_SETVERSION, &data);
 	}
 	// If Explorer is not ready during logon, the 1-second policy timer retries.
+}
+
+void App::update_tray_icon(bool update_available) noexcept
+{
+	icon_update_requested_ = update_available;
+	try {
+		const SIZE size{GetSystemMetrics(SM_CXSMICON),
+		                GetSystemMetrics(SM_CYSMICON)};
+		const bool dark = dark_taskbar();
+		if (icon_ && icon_size_.cx == size.cx && icon_size_.cy == size.cy &&
+		    icon_update_available_ == update_available && icon_dark_ == dark) {
+			icon_dirty_ = false;
+			return;
+		}
+		const auto replacement =
+			load_tray_icon(instance_, size.cx, size.cy, update_available, dark);
+		if (tray_added_) {
+			NOTIFYICONDATAW data{sizeof(data)};
+			data.hWnd = window_;
+			data.uID = icon_id;
+			data.uFlags = NIF_ICON;
+			data.hIcon = replacement;
+			if (!Shell_NotifyIconW(NIM_MODIFY, &data)) {
+				tray_added_ = false;
+			}
+		}
+		const auto previous = icon_;
+		icon_ = replacement;
+		icon_size_ = size;
+		icon_update_available_ = update_available;
+		icon_dark_ = dark;
+		icon_dirty_ = false;
+		if (previous) {
+			DestroyIcon(previous);
+		}
+	} catch (const std::exception &error) {
+		// Keep the old icon and retry on the policy timer, never by rebuilding
+		// the snow renderer or allocating GDI objects in the frame loop.
+		icon_dirty_ = true;
+		store_.log(error.what());
+	} catch (...) {
+		icon_dirty_ = true;
+		store_.log("Could not update the tray icon");
+	}
 }
 
 void App::notify(const wchar_t *title, const wchar_t *text, DWORD flags) noexcept
@@ -522,7 +574,8 @@ void App::show_menu()
 			const auto state = updater_->view();
 			const auto sub =
 				menu.submenu(root, tr(Text::updates), MenuGlyph::refresh,
-			                 state.release ? widen(state.release->tag) : L"");
+			                 state.release ? widen(state.release->tag) : L"",
+			                 state.update_available());
 			menu.item(sub, cmd_update_check,
 			          state.status == Updater::Status::checking
 			              ? tr(Text::checking)
@@ -830,6 +883,7 @@ void App::update_finished()
 		return;
 	}
 	update_revision_ = state.revision;
+	update_tray_icon(state.update_available());
 	switch (state.status) {
 	case Updater::Status::available: {
 		const auto detail = L"Доступна " + widen(state.release->tag) +
@@ -941,6 +995,7 @@ LRESULT App::dispatch(UINT message, WPARAM wparam, LPARAM lparam)
 		}
 		return DefWindowProcW(window_, message, wparam, lparam);
 	case WM_THEMECHANGED:
+		update_tray_icon(icon_update_requested_);
 		if (menu_open_) {
 			EndMenu();
 		}
@@ -956,6 +1011,9 @@ LRESULT App::dispatch(UINT message, WPARAM wparam, LPARAM lparam)
 		return 0;
 	case message_rebuild:
 	case WM_DISPLAYCHANGE:
+		if (message == WM_DISPLAYCHANGE) {
+			update_tray_icon(icon_update_requested_);
+		}
 		if (!rebuilding_) {
 			if (renderer_) {
 				renderer_->hide();
@@ -973,6 +1031,9 @@ LRESULT App::dispatch(UINT message, WPARAM wparam, LPARAM lparam)
 		return 0;
 	case message_desktop:
 	case WM_SETTINGCHANGE:
+		if (message == WM_SETTINGCHANGE) {
+			update_tray_icon(icon_update_requested_);
+		}
 		if (message == WM_SETTINGCHANGE && menu_open_) {
 			EndMenu();
 		}
@@ -998,6 +1059,9 @@ LRESULT App::dispatch(UINT message, WPARAM wparam, LPARAM lparam)
 			update_policy();
 			refresh_desktop();
 		} else if (wparam == timer_policy) {
+			if (icon_dirty_) {
+				update_tray_icon(icon_update_requested_);
+			}
 			if (!tray_added_) {
 				add_tray_icon();
 			}

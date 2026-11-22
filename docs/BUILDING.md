@@ -92,12 +92,12 @@ cmake --preset ninja-release -DCMAKE_CXX_COMPILER=clang-cl
 
 ### Меню
 
-Проверяет команды, состояния, подписи доступности, отрисовку с сохранением GDI-контекста и освобождение USER/GDI-объектов при повторных циклах создания и удаления меню.
+Проверяет команды, состояния, подписи доступности, метку `new`, отрисовку с сохранением GDI-контекста и освобождение USER/GDI-объектов при повторных циклах создания и удаления меню. Отдельный тест значка трея проверяет янтарный индикатор на разных размерах, прозрачность, сохранение логотипа и освобождение GDI/USER-ресурсов.
 
 ```powershell
 cmake --preset windows-msvc -DSPEEECIAL_WINDOWS_MENU_TESTS=ON
-cmake --build --preset windows-release --target snow_windows_menu_tests
-ctest --preset windows-release -R '^snow_windows_menu_tests$'
+cmake --build --preset windows-release --target snow_windows_menu_tests snow_windows_tray_icon_tests
+ctest --preset windows-release -R '^snow_windows_(menu|tray_icon)_tests$'
 ```
 
 Тест не заменяет ручную проверку настоящих всплывающих меню и ввода. При включённой высокой контрастности или системном флаге экранного диктора используется стандартная отрисовка.

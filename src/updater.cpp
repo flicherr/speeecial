@@ -524,6 +524,24 @@ int apply_update(const fs::path &target, HANDLE parent, HANDLE ready,
 		return 1;
 	}
 }
+
+template <class Fetch>
+Updater::View check_release(Updater::View result, Fetch &&fetch)
+{
+	try {
+		// Replace a known release only after fetching and parsing succeed.
+		result.release = updates::parse_release(fetch(), SPEEECIAL_VERSION);
+		result.status = result.release ? Updater::Status::available
+		                               : Updater::Status::current;
+		result.detail = result.release
+		                    ? L"Доступна " + widen(result.release->tag)
+		                    : L"Установлена актуальная версия";
+	} catch (const std::exception &error) {
+		result.status = Updater::Status::failed;
+		result.detail = widen(error.what());
+	}
+	return result;
+}
 }
 
 struct Updater::State {
@@ -594,24 +612,24 @@ void Updater::set_automatic(bool enabled)
 
 void Updater::check(bool manual)
 {
-	if (view().busy()) {
+	auto pending = view();
+	if (pending.busy()) {
 		return;
 	}
 	const auto now = std::to_wstring(unix_time());
 	check_win(WritePrivateProfileStringW(L"Updates", L"LastAttempt",
 	                                     now.c_str(), preferences_.c_str()),
 	          "Save last update check");
-	View pending;
 	pending.status = Status::checking;
 	pending.manual = manual;
+	pending.progress = 0;
+	pending.detail.clear();
 	state_->publish(pending);
 	auto state = state_;
 	try {
-		std::thread([state, manual] {
+		std::thread([state, pending] {
 			SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
-			View result;
-			result.manual = manual;
-			try {
+			auto result = check_release(pending, [&] {
 				std::string json;
 				download(
 					L"https://api.github.com/repos/flicherr/speeecial/releases/"
@@ -625,17 +643,8 @@ void Updater::check(bool manual)
 					                count);
 					},
 					state->cancel);
-				result.release =
-					updates::parse_release(json, SPEEECIAL_VERSION);
-				result.status =
-					result.release ? Status::available : Status::current;
-				result.detail = result.release
-				                    ? L"Доступна " + widen(result.release->tag)
-				                    : L"Установлена актуальная версия";
-			} catch (const std::exception &error) {
-				result.status = Status::failed;
-				result.detail = widen(error.what());
-			}
+				return json;
+			});
 			state->publish(std::move(result));
 		}).detach();
 	} catch (...) {

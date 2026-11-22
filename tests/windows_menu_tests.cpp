@@ -1,6 +1,7 @@
 #include "localization.hpp"
 #include "tray_menu.hpp"
 #include "win_util.hpp"
+#include <algorithm>
 #include <iostream>
 #include <oleacc.h>
 
@@ -28,6 +29,7 @@ struct Canvas
 	HDC dc = CreateCompatibleDC(nullptr);
 	HBITMAP bitmap{};
 	HGDIOBJ previous{};
+	DWORD *pixels{};
 
 	Canvas()
 	{
@@ -38,8 +40,9 @@ struct Canvas
 		info.bmiHeader.biHeight = -1024;
 		info.bmiHeader.biPlanes = 1;
 		info.bmiHeader.biBitCount = 32;
-		void *pixels = nullptr;
-		bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+		bitmap =
+			CreateDIBSection(dc, &info, DIB_RGB_COLORS,
+		                     reinterpret_cast<void **>(&pixels), nullptr, 0);
 		if (!bitmap) {
 			DeleteDC(dc);
 			check_win(FALSE, "Create menu test bitmap");
@@ -54,6 +57,102 @@ struct Canvas
 		DeleteDC(dc);
 	}
 };
+
+void update_badge(MenuTheme theme, Canvas &canvas, Language language)
+{
+	TrayMenu menu(GetModuleHandleW(nullptr), {0, 0}, theme);
+	const auto root = menu.handle();
+	const std::wstring label =
+		std::wstring(localized(Text::updates, language)) +
+		L" — speeecial portable desktop";
+	const std::wstring version = L"v1234.5678.9012";
+	menu.submenu(root, label, MenuGlyph::refresh, version);
+	menu.submenu(root, label, MenuGlyph::refresh, version, true);
+	if (!menu.styled()) {
+		wchar_t plain[256]{}, badged[256]{};
+		GetMenuStringW(root, 0, plain, 256, MF_BYPOSITION);
+		GetMenuStringW(root, 1, badged, 256, MF_BYPOSITION);
+		require(
+			std::wstring(plain).find(L"new") == std::wstring::npos &&
+				std::wstring(badged).find(L"[new]") != std::wstring::npos &&
+				std::wstring(badged).find(version) != std::wstring::npos,
+			"Native update indicators must retain the version and new text");
+		return;
+	}
+	const auto plain = item(root, 0), badged = item(root, 1);
+	const auto *accessible =
+		reinterpret_cast<const MSAAMENUINFO *>(badged.dwItemData);
+	const std::wstring spoken = label + L", new, " + version;
+	const auto *plain_accessible =
+		reinterpret_cast<const MSAAMENUINFO *>(plain.dwItemData);
+	const std::wstring plain_spoken = label + L", " + version;
+	require(accessible && accessible->dwMSAASignature == MSAA_MENU_SIG &&
+	            accessible->cchWText == spoken.size() &&
+	            accessible->pszWText == spoken && plain_accessible &&
+	            plain_accessible->pszWText == plain_spoken,
+	        "Accessible update text must distinguish new releases");
+	MEASUREITEMSTRUCT plain_size{}, badge_size{};
+	plain_size.CtlType = badge_size.CtlType = ODT_MENU;
+	plain_size.itemData = plain.dwItemData;
+	badge_size.itemData = badged.dwItemData;
+	require(menu.measure(plain_size) && menu.measure(badge_size) &&
+	            badge_size.itemWidth > plain_size.itemWidth &&
+	            badge_size.itemHeight == plain_size.itemHeight,
+	        "New badges must reserve width while preserving the row height");
+	const bool dark = theme == MenuTheme::dark;
+	const DWORD amber = dark ? 0x44331a : 0xfff0cf;
+	const auto render = [&](ULONG_PTR data, UINT width, UINT state) {
+		DRAWITEMSTRUCT draw{};
+		draw.CtlType = ODT_MENU;
+		draw.itemData = data;
+		draw.hDC = canvas.dc;
+		draw.itemState = state;
+		draw.rcItem = {0, 0, static_cast<LONG>(width),
+		               static_cast<LONG>(badge_size.itemHeight)};
+		const auto font = GetCurrentObject(canvas.dc, OBJ_FONT);
+		const auto brush = GetCurrentObject(canvas.dc, OBJ_BRUSH);
+		const auto pen = GetCurrentObject(canvas.dc, OBJ_PEN);
+		RECT before{};
+		const auto clip = GetClipBox(canvas.dc, &before);
+		require(menu.draw(draw), "New badge drawing failed");
+		RECT after{};
+		require(GetCurrentObject(canvas.dc, OBJ_FONT) == font &&
+		            GetCurrentObject(canvas.dc, OBJ_BRUSH) == brush &&
+		            GetCurrentObject(canvas.dc, OBJ_PEN) == pen &&
+		            GetClipBox(canvas.dc, &after) == clip &&
+		            EqualRect(&before, &after),
+		        "Badge rendering damaged the caller DC");
+		GdiFlush();
+		std::vector<DWORD> pixels;
+		pixels.reserve(width * badge_size.itemHeight);
+		for (UINT y = 0; y < badge_size.itemHeight; ++y) {
+			for (UINT x = 0; x < width; ++x) {
+				pixels.push_back(canvas.pixels[y * 4096 + x] & 0xffffff);
+			}
+		}
+		return pixels;
+	};
+	for (UINT width : {badge_size.itemWidth,
+	                   std::max(UINT{180}, badge_size.itemWidth / 2)}) {
+		for (UINT state :
+		     {UINT{0}, UINT{ODS_SELECTED | ODS_FOCUS}, UINT{ODS_DISABLED}}) {
+			const auto without = render(plain.dwItemData, width, state);
+			const auto with = render(badged.dwItemData, width, state);
+			require(std::count(without.begin(), without.end(), amber) == 0 &&
+			            ((state & ODS_DISABLED) ||
+			             std::count(with.begin(), with.end(), amber) > 0),
+			        "Only an available release should display the amber badge");
+			for (UINT y = 0; y < badge_size.itemHeight; ++y) {
+				const auto first = y * width + width * 3 / 4;
+				const auto last = (y + 1) * width;
+				require(std::equal(without.begin() + first,
+				                   without.begin() + last,
+				                   with.begin() + first),
+				        "The badge must not alter the right-aligned version");
+			}
+		}
+	}
+}
 
 void exercise(MenuTheme theme, Canvas &canvas, Language language)
 {
@@ -165,6 +264,7 @@ int main()
 		for (auto theme : {MenuTheme::dark, MenuTheme::light, MenuTheme::native}) {
 			for (auto language : {Language::russian, Language::english}) {
 				exercise(theme, canvas, language);
+				update_badge(theme, canvas, language);
 			}
 		}
 		const auto process = GetCurrentProcess();
@@ -173,6 +273,8 @@ int main()
 		for (int i = 0; i < 100; ++i) {
 			exercise(i % 2 ? MenuTheme::dark : MenuTheme::light, canvas,
 			         i % 3 ? Language::english : Language::russian);
+			update_badge(i % 2 ? MenuTheme::dark : MenuTheme::light, canvas,
+			             i % 3 ? Language::english : Language::russian);
 		}
 		require(GetGuiResources(process, GR_GDIOBJECTS) <= gdi + 2 &&
 		            GetGuiResources(process, GR_USEROBJECTS) <= user + 2,

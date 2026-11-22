@@ -137,7 +137,7 @@ jobs:
           merge-multiple: true
           path: notes
 
-      - name: Create draft and verify release assets
+      - name: Create or update draft and verify release assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -199,72 +199,128 @@ jobs:
               Authorization = "Bearer $env:GH_TOKEN"
               Accept = 'application/vnd.github+json'
               'X-GitHub-Api-Version' = '2022-11-28'
+              'Cache-Control' = 'no-cache'
           }
           $endpoint = "$env:GITHUB_API_URL/repos/$repository/releases"
-          $releaseId = $null
-          function Read-Release {
-              if ($releaseId) {
-                  return Invoke-RestMethod -Uri "$endpoint/$releaseId" -Headers $headers
+          $title = "speeecial $version"
+          $notes = (Get-Content -LiteralPath notes/release-notes.md -Raw).Trim()
+          if (-not $notes) { throw 'Release notes are empty; the draft will not be changed.' }
+
+          function Assert-Draft($release) {
+              if (-not $release -or "$($release.id)" -cnotmatch '^[1-9][0-9]*$' -or $release.tag_name -cne $tag) {
+                  throw "Unexpected release response: id=$($release.id), tag=$($release.tag_name); expected $tag."
               }
-              # The /releases/tags endpoint only finds published releases.
-              # Authenticated listings include drafts; use the ID once found.
-              $matching = @()
-              $page = 1
-              do {
-                  $items = Invoke-RestMethod -Uri "${endpoint}?per_page=100&page=$page" -Headers $headers
-                  $matching += @($items | Where-Object { $_.tag_name -ceq $tag })
-                  ++$page
-              } while (@($items).Count -eq 100)
-              if ($matching.Count -gt 1) { throw 'Multiple releases use this tag. Review them before retrying.' }
-              if ($matching.Count) { return $matching[0] }
-              return $null
+              if (-not $release.draft) { throw 'This release is already published; it will not be changed.' }
+              if ($release.prerelease) { throw 'Expected a stable draft release, not a prerelease.' }
+              if (@($release.assets | Where-Object { $_.name -cnotin $assetNames }).Count) {
+                  throw 'The existing draft contains unexpected assets. Review it before retrying.'
+              }
           }
-          $release = Read-Release
-          if ($release -and -not $release.draft) {
-              throw 'This release is already published; its files will not be changed.'
+
+          function Read-Release {
+              $problem = 'empty response'
+              for ($attempt = 0; $attempt -lt 6; ++$attempt) {
+                  try {
+                      $candidate = Invoke-RestMethod -Uri "$endpoint/$releaseId" -Headers $headers
+                      if ($candidate -and "$($candidate.id)" -ceq "$releaseId") { return $candidate }
+                      $problem = "unexpected response: id=$($candidate.id), tag=$($candidate.tag_name)"
+                  } catch {
+                      $status = [int]$_.Exception.Response.StatusCode
+                      $problem = $_.Exception.Message
+                      if ($status -and $status -notin @(404, 429) -and $status -lt 500) {
+                          throw "Cannot read release ${releaseId}: $problem"
+                      }
+                  }
+                  if ($attempt -lt 5) {
+                      Write-Host "Retrying release ${releaseId}: $problem"
+                      Start-Sleep -Seconds 3
+                  }
+              }
+              throw "Cannot read release $releaseId after 6 attempts: $problem"
           }
+
+          # Find an existing release once. After creation, use the POST response
+          # ID instead of waiting for the new draft to appear in this listing.
+          $matching = @()
+          $page = 1
+          do {
+              $items = Invoke-RestMethod -Uri "${endpoint}?per_page=100&page=$page" -Headers $headers
+              $matching += @($items | Where-Object { $_.tag_name -ceq $tag })
+              ++$page
+          } while (@($items).Count -eq 100)
+          if ($matching.Count -gt 1) { throw 'Multiple releases use this tag. Review them before retrying.' }
+          $release = if ($matching.Count) { $matching[0] } else { $null }
           if (-not $release) {
-              gh release create $tag --repo $repository --verify-tag --draft --title "speeecial $version" --notes-file notes/release-notes.md
-              if ($LASTEXITCODE -ne 0) { throw 'Cannot create the draft release.' }
-              $release = Read-Release
+              $payload = @{ tag_name = $tag; target_commitish = $env:RELEASE_COMMIT; name = $title; body = $notes; draft = $true; prerelease = $false } | ConvertTo-Json
+              $release = Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $payload
           }
-          if (-not $release -or -not $release.draft -or $release.prerelease) {
-              throw 'Expected a stable draft release.'
-          }
+          Assert-Draft $release
           $releaseId = $release.id
-          if (@($release.assets | Where-Object { $_.name -cnotin $assetNames }).Count) {
-              throw 'The existing draft contains unexpected assets. Review it before retrying.'
+
+          $release = Read-Release
+          Assert-Draft $release
+          if ($release.name -cne $title -or $release.body -cne $notes) {
+              # Do not send draft=true in PATCH: a concurrent publication must
+              # never be reverted to a draft by this workflow.
+              $payload = @{ name = $title; body = $notes } | ConvertTo-Json
+              $release = Invoke-RestMethod -Method Patch -Uri "$endpoint/$releaseId" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $payload
+              Assert-Draft $release
           }
+
           foreach ($asset in $assets) {
               $release = Read-Release
-              if (-not $release.draft) { throw 'The release was published during this run.' }
+              Assert-Draft $release
               $existing = @($release.assets | Where-Object { $_.name -ceq $asset.Name })
+              if ($existing.Count -gt 1) { throw "Duplicate draft asset $($asset.Name). Review the draft before retrying." }
               if ($existing.Count) {
-                  if ($existing.Count -ne 1 -or $existing[0].state -cne 'uploaded' -or $existing[0].size -ne $asset.Size -or $existing[0].digest -cne $asset.Digest) {
-                      throw "Existing draft asset $($asset.Name) differs. Review the draft before retrying."
+                  if ($existing[0].state -ceq 'uploaded' -and $existing[0].size -eq $asset.Size -and $existing[0].digest -ceq $asset.Digest) {
+                      continue
                   }
-                  continue
+                  Write-Host "Replacing draft asset $($asset.Name)."
+                  Invoke-RestMethod -Method Delete -Uri "$endpoint/assets/$($existing[0].id)" -Headers $headers | Out-Null
+                  $release = Read-Release
+                  Assert-Draft $release
               }
-              gh release upload $tag $asset.Path --repo $repository
-              if ($LASTEXITCODE -ne 0) { throw "Cannot upload $($asset.Name)." }
+              $uploadBase = $release.upload_url -replace '\{\?name,label\}$', ''
+              if ($uploadBase -cne "https://uploads.github.com/repos/$repository/releases/$releaseId/assets") {
+                  throw "Unexpected upload URL for release ${releaseId}: $uploadBase"
+              }
+              $uploadUrl = $uploadBase + '?name=' + [uri]::EscapeDataString($asset.Name)
+              try {
+                  Invoke-RestMethod -Method Post -Uri $uploadUrl -Headers $headers -ContentType 'application/octet-stream' -InFile $asset.Path | Out-Null
+              } catch {
+                  throw "Cannot upload $($asset.Name) to draft release ${releaseId}: $($_.Exception.Message)"
+              }
           }
 
           $verified = $false
           for ($attempt = 0; $attempt -lt 6; ++$attempt) {
               $release = Read-Release
-              if (-not $release.draft) { throw 'The release was published during verification.' }
-              $verified = @($release.assets).Count -eq $assetNames.Count
+              Assert-Draft $release
+              $problems = @()
+              if ($release.name -cne $title -or $release.body -cne $notes) { $problems += 'Title or release notes differ.' }
+              if (@($release.assets).Count -ne $assetNames.Count) { $problems += 'Expected exactly the EXE and ZIP.' }
+              $tagPage = "$env:GITHUB_SERVER_URL/$repository/releases/tag/"
+              $draftPagePattern = '^' + [regex]::Escape($tagPage) + 'untagged-[0-9a-f]+$'
+              if ($release.html_url -cne "$tagPage$tag" -and $release.html_url -cnotmatch $draftPagePattern) {
+                  throw "Unexpected draft URL for release ${releaseId}: $($release.html_url)"
+              }
               foreach ($asset in $assets) {
                   $remote = @($release.assets | Where-Object { $_.name -ceq $asset.Name })
-                  $url = "$env:GITHUB_SERVER_URL/$repository/releases/download/$tag/$($asset.Name)"
-                  if ($remote.Count -ne 1 -or $remote[0].state -cne 'uploaded' -or $remote[0].size -ne $asset.Size -or $remote[0].digest -cne $asset.Digest -or $remote[0].browser_download_url -cne $url) {
-                      $verified = $false
+                  # Draft browser URLs can use untagged-* until publication.
+                  $urls = @(
+                      "$env:GITHUB_SERVER_URL/$repository/releases/download/$tag/$($asset.Name)"
+                      ($release.html_url -creplace '/releases/tag/', '/releases/download/') + '/' + $asset.Name
+                  )
+                  if ($remote.Count -ne 1 -or $remote[0].state -cne 'uploaded' -or $remote[0].size -ne $asset.Size -or $remote[0].digest -cne $asset.Digest -or $remote[0].browser_download_url -cnotin $urls) {
+                      $problems += "Asset $($asset.Name) differs: matches=$($remote.Count), state=$($remote.state), size=$($remote.size), digest=$($remote.digest), URL=$($remote.browser_download_url)."
                   }
               }
+              $verified = $problems.Count -eq 0
               if ($verified) { break }
               if ($attempt -lt 5) { Start-Sleep -Seconds 5 }
           }
-          if (-not $verified) { throw 'Release asset verification failed; the draft remains unpublished.' }
+          if (-not $verified) { throw "Draft release $releaseId verification failed; it remains unpublished. $($problems -join ' ')" }
           @(
               "Draft release: [$tag]($($release.html_url))"
               ""

@@ -66,3 +66,7 @@ jobs:
 
       - name: Validate workflows
         run: actionlint -color
+
+      - name: Test release draft creation and updates
+        shell: pwsh
+        run: ./tests/release_workflow_tests.ps1

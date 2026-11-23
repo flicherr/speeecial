@@ -1,0 +1,30 @@
+name: Question or idea discussion
+description: Ask a question or discuss an early idea for speeecial.
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the README and existing issues before opening a new discussion.
+        You can write in English or Russian.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question or idea
+      description: What would you like to ask or discuss?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and what you have tried
+      description: |
+        Explain what you are trying to do and any settings or approaches you
+        have already tried. Add examples or links if useful.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and environment
+      description: |
+        For questions about app behavior, include your speeecial version,
+        Windows version, and any relevant display or graphics details.

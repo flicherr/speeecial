@@ -1,0 +1,78 @@
+name: Bug report
+description: Report a bug, including antivirus or SmartScreen warnings.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues before opening a new report.
+        You can write in English or Russian.
+  - type: input
+    id: version
+    attributes:
+      label: speeecial version
+      description: |
+        Release version, or commit SHA if you built from source.
+        If speeecial cannot start, use the version you downloaded.
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: Include the Windows edition, version, and build from winver.
+      placeholder: Windows 11, version ..., OS build ...
+    validations:
+      required: true
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: What happened?
+      description: Describe the problem and how often it occurs.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: |
+        List the actions leading to the problem, including relevant settings
+        and affected applications. For antivirus or SmartScreen warnings,
+        mention whether they appeared during download, startup, or an update.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Display and graphics setup
+      description: |
+        If relevant, include your GPU and driver, monitor count, resolutions,
+        display scaling, and taskbar auto-hide setting. Mention whether the
+        affected window was regular, maximized, or fullscreen.
+  - type: textarea
+    id: antivirus
+    attributes:
+      label: Antivirus or SmartScreen warning
+      description: |
+        If applicable, include the antivirus name (or SmartScreen), the
+        detection name or exact warning text, and the SHA-256 of the flagged
+        EXE. In PowerShell, run
+        `Get-FileHash .\speeecial-windows-x64.exe -Algorithm SHA256`
+        using the actual path to your file.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics and attachments
+      description: |
+        Attach diagnostics if available, plus a screenshot or short recording
+        for visual problems. Choose **Diagnostics → Save diagnostics** in the
+        tray menu to create `%LOCALAPPDATA%\speeecial\diagnostics.txt`.
+        **Diagnostics → Settings and log folder** opens that folder.
+        If the app cannot start, a diagnostics report is not required.

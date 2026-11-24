@@ -22,9 +22,9 @@ Rect screen_rect(RECT rect) noexcept;
 std::vector<Display> enumerate_displays();
 
 // EnumWindows membership plus direct reconciliation of known live handles.
-// No DWM/COM calls; safe for the renderer's short-lived ordering snapshot too.
 std::vector<WindowOrder>
 enumerate_window_order(std::span<const HWND> required = {});
+std::vector<WindowOrder> popup_window_order(std::span<const HWND> candidates);
 
 bool on_battery() noexcept;
 
@@ -49,7 +49,7 @@ struct DesktopSnapshot {
 	                          // order above applications.
 	std::vector<HWND> taskbars; // Shell bands are ordering anchors even before
 	                            // a tooltip appears.
-	std::vector<HWND> topmost_apps;
+	std::vector<HWND> ordering_apps;
 	std::optional<GUID> desktop;
 	bool desktop_changed = false;
 	bool full_scan = false;

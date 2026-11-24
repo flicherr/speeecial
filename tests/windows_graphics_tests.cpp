@@ -272,7 +272,7 @@ void popup_switching(Renderer &renderer)
 		SetWindowPos(tip, HWND_TOPMOST, 0, 0, 0, 0, flags | SWP_SHOWWINDOW),
 		"Keep a native popup above the maximized app");
 	DesktopSnapshot covered;
-	covered.topmost_apps = {app};
+	covered.ordering_apps = {app};
 	// The native popup has not arrived in the snapshot. Raising the snow
 	// just above the app should still preserve the popup's order.
 	for (unsigned repeat = 0; repeat < 3; ++repeat) {
@@ -286,6 +286,55 @@ void popup_switching(Renderer &renderer)
 	verify(nullptr);
 	if (GetWindowLongPtrW(app, GWL_EXSTYLE) != app_style) {
 		throw std::runtime_error("Recovery changed the maximized app's style");
+	}
+
+	// Model the observed desktop order directly. The covering app has no
+	// TOPMOST flag, and drops its frame and APPWINDOW flag in fullscreen.
+	check_win(SetWindowPos(app, HWND_NOTOPMOST, 0, 0, 0, 0, flags),
+	          "Return test application to its ordinary band");
+	for (bool fullscreen : {false, true}) {
+		if (fullscreen) {
+			MONITORINFO info{sizeof(info)};
+			check_win(
+				GetMonitorInfoW(
+					MonitorFromWindow(app, MONITOR_DEFAULTTONEAREST), &info),
+				"Get fullscreen regression monitor");
+			SetWindowLongPtrW(app, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+			SetWindowLongPtrW(app, GWL_EXSTYLE, 0);
+			const auto &r = info.rcMonitor;
+			check_win(
+				SetWindowPos(app, nullptr, r.left, r.top, r.right - r.left,
+			                 r.bottom - r.top,
+			                 SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED),
+				"Enter borderless fullscreen");
+		}
+		const auto style = GetWindowLongPtrW(app, GWL_EXSTYLE);
+		for (HWND w = FindWindowExW(nullptr, nullptr, L"speeecial.Overlay.1.0",
+		                            nullptr);
+		     w;
+		     w = FindWindowExW(nullptr, w, L"speeecial.Overlay.1.0", nullptr)) {
+			DWORD pid = 0;
+			GetWindowThreadProcessId(w, &pid);
+			if (pid == GetCurrentProcessId() &&
+			    MonitorFromWindow(w, MONITOR_DEFAULTTONULL) ==
+			        MonitorFromWindow(app, MONITOR_DEFAULTTONULL)) {
+				check_win(SetWindowPos(w, app, 0, 0, 0, 0, flags),
+				          "Place snow behind ordinary app");
+				break;
+			}
+		}
+		if (renderer.description().find(" / app above 1") ==
+		    std::string::npos) {
+			throw std::runtime_error(
+				"Ordinary window above snow went undetected");
+		}
+		renderer.synchronize_desktop(covered);
+		verify(nullptr);
+		if (GetWindowLongPtrW(app, GWL_EXSTYLE) != style ||
+		    (style & WS_EX_TOPMOST)) {
+			throw std::runtime_error(
+				"Recovery altered the ordinary app's band");
+		}
 	}
 }
 

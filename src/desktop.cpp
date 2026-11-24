@@ -23,6 +23,44 @@ Rect screen_rect(RECT r) noexcept
 	        static_cast<float>(r.right), static_cast<float>(r.bottom)};
 }
 
+namespace
+{
+void add_known_window(std::vector<WindowOrder> &order, HWND window)
+{
+	const auto handle = reinterpret_cast<std::uintptr_t>(window);
+	if (!window ||
+	    std::any_of(order.begin(), order.end(),
+	                [&](auto entry) { return entry.window == handle; }) ||
+	    !IsWindow(window)) {
+		return;
+	}
+	const bool topmost =
+		(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+	const auto neighbour = [&](UINT direction) -> std::uintptr_t {
+		HWND current = window;
+		// A whole run can be absent. Find an observed neighbour, not just
+		// an adjacent missing HWND; otherwise recovery would depend on map
+		// order.
+		for (unsigned n = 0; n < 256; ++n) {
+			current = GetWindow(current, direction);
+			if (!current || current == window) {
+				break;
+			}
+			const auto id = reinterpret_cast<std::uintptr_t>(current);
+			if (std::any_of(order.begin(), order.end(), [&](auto entry) {
+					return entry.window == id && entry.topmost == topmost;
+				})) {
+				return id;
+			}
+		}
+		return 0;
+	};
+	const auto next = neighbour(GW_HWNDNEXT);
+	recover_window(order, {handle, topmost}, next ? 0 : neighbour(GW_HWNDPREV),
+	               next);
+}
+}
+
 std::vector<WindowOrder> enumerate_window_order(std::span<const HWND> required)
 {
 	constexpr std::size_t limit = 8192;
@@ -40,45 +78,12 @@ std::vector<WindowOrder> enumerate_window_order(std::span<const HWND> required)
 		return TRUE;
 	};
 	EnumWindows(callback, reinterpret_cast<LPARAM>(&order));
-	const auto add = [&](HWND window) {
-		const auto handle = reinterpret_cast<std::uintptr_t>(window);
-		if (!window ||
-		    std::any_of(order.begin(), order.end(),
-		                [&](auto entry) { return entry.window == handle; }) ||
-		    !IsWindow(window)) {
-			return;
-		}
-		const bool topmost =
-			(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-		const auto neighbour = [&](UINT direction) -> std::uintptr_t {
-			HWND current = window;
-			// A whole run can be absent. Find an observed neighbour, not just
-			// an adjacent missing HWND; otherwise recovery would depend on map
-			// order.
-			for (unsigned n = 0; n < 256; ++n) {
-				current = GetWindow(current, direction);
-				if (!current || current == window) {
-					break;
-				}
-				const auto id = reinterpret_cast<std::uintptr_t>(current);
-				if (std::any_of(order.begin(), order.end(), [&](auto entry) {
-						return entry.window == id && entry.topmost == topmost;
-					})) {
-					return id;
-				}
-			}
-			return 0;
-		};
-		const auto next = neighbour(GW_HWNDNEXT);
-		recover_window(order, {handle, topmost},
-		               next ? 0 : neighbour(GW_HWNDPREV), next);
-	};
 	for (HWND window : required) {
-		add(window);
+		add_known_window(order, window);
 	}
 	// Shell windows can move between bands when Start/Quick Settings activate.
 	// They are not necessarily reachable from GetTopWindow(nullptr).
-	add(FindWindowW(L"Shell_TrayWnd", nullptr));
+	add_known_window(order, FindWindowW(L"Shell_TrayWnd", nullptr));
 	HWND secondary = nullptr;
 	for (unsigned n = 0; n < 32; ++n) {
 		secondary = FindWindowExW(nullptr, secondary, L"Shell_SecondaryTrayWnd",
@@ -86,9 +91,38 @@ std::vector<WindowOrder> enumerate_window_order(std::span<const HWND> required)
 		if (!secondary) {
 			break;
 		}
-		add(secondary);
+		add_known_window(order, secondary);
 	}
-	add(GetForegroundWindow());
+	add_known_window(order, GetForegroundWindow());
+	return order;
+}
+
+std::vector<WindowOrder> popup_window_order(std::span<const HWND> candidates)
+{
+	// Only the live prefix down to the published anchors matters on the UI
+	// thread. Keep EnumWindows and shell discovery on the desktop worker.
+	constexpr std::size_t limit = 128;
+	std::vector<WindowOrder> order;
+	auto remaining = candidates.size();
+	HWND window = GetTopWindow(nullptr);
+	while (window && remaining && order.size() < limit) {
+		order.push_back(
+			{reinterpret_cast<std::uintptr_t>(window),
+		     (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0});
+		if (std::find(candidates.begin(), candidates.end(), window) !=
+		    candidates.end()) {
+			--remaining;
+		}
+		window = GetWindow(window, GW_HWNDNEXT);
+	}
+	// Explorer can expose an active shell HWND outside that walk. Recover
+	// it against the live neighbours as in the worker inventory.
+	if (remaining && !window) {
+		for (HWND candidate : candidates) {
+			add_known_window(order, candidate);
+		}
+		add_known_window(order, GetForegroundWindow());
+	}
 	return order;
 }
 
@@ -317,7 +351,7 @@ struct DesktopScanner::Impl {
 	std::vector<Blocker> blockers;
 	std::vector<HWND> popups;
 	std::vector<HWND> taskbars;
-	std::vector<HWND> topmost_apps;
+	std::vector<HWND> ordering_apps;
 
 	struct BlockerEntry {
 		std::size_t index;
@@ -627,7 +661,7 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 		result.blockers = impl_->blockers;
 		result.popups = impl_->popups;
 		result.taskbars = impl_->taskbars;
-		result.topmost_apps = impl_->topmost_apps;
+		result.ordering_apps = impl_->ordering_apps;
 		result.desktop = impl_->current_desktop;
 		result.fullscreen_window = impl_->fullscreen_window;
 		impl_->motion_sample(result);
@@ -799,9 +833,12 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 		     ((style & WS_CAPTION) == WS_CAPTION || (style & WS_THICKFRAME) ||
 		      (ex & WS_EX_APPWINDOW)) &&
 		     body.width() >= 100 * scale && body.height() >= 50 * scale);
-		if (candidate && visible && good && !is_taskbar &&
-		    (ex & WS_EX_TOPMOST) && result.topmost_apps.size() < max_surfaces) {
-			result.topmost_apps.push_back(window);
+		// A borderless fullscreen app can cover the overlay without having a
+		// caption, resize border, or WS_EX_APPWINDOW to collect snow on.
+		if (visible && good && !is_taskbar && !popup && !transparent_overlay &&
+		    !(ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)) &&
+		    result.ordering_apps.size() < max_surfaces) {
+			result.ordering_apps.push_back(window);
 		}
 		if (it == impl_->records.end()) {
 			if (!candidate || !good || !visible ||
@@ -876,7 +913,7 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 	impl_->blockers = result.blockers;
 	impl_->popups = result.popups;
 	impl_->taskbars = result.taskbars;
-	impl_->topmost_apps = result.topmost_apps;
+	impl_->ordering_apps = result.ordering_apps;
 	if (impl_->moving_window && !IsWindow(impl_->moving_window)) {
 		impl_->moving_window = nullptr;
 	}

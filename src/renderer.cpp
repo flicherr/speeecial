@@ -203,7 +203,7 @@ struct Renderer::Impl {
 	std::size_t popup_count = 0;
 	std::vector<HWND> popup_windows;
 	std::vector<HWND> taskbar_windows;
-	std::vector<HWND> topmost_apps;
+	std::vector<HWND> ordering_apps;
 	std::vector<PopupStackEntry> popup_stack;
 	POINT last_cursor{};
 	bool cursor_valid = false, capture_excluded = false,
@@ -296,7 +296,7 @@ struct Renderer::Impl {
 		bank_elapsed = 1;
 		popup_windows.clear();
 		taskbar_windows.clear();
-		topmost_apps.clear();
+		ordering_apps.clear();
 		popup_stack.clear();
 		popup_count = 0;
 		cursor_valid = false;
@@ -604,8 +604,12 @@ struct Renderer::Impl {
 		// order. Tooltip HWNDs are reused/reordered between icons. Only cheap
 		// User32 queries run here; DWM/COM and the full desktop scan stay on
 		// the worker.
-		const auto order = enumerate_window_order(
+		if (!remaining) {
+			return;
+		}
+		const auto order = popup_window_order(
 			std::span<const HWND>(pending.data(), remaining));
+		const HWND foreground = GetForegroundWindow();
 		for (const auto &entry : order) {
 			if (!remaining) {
 				break;
@@ -615,6 +619,12 @@ struct Renderer::Impl {
 			    found != pending.end()) {
 				*found = nullptr;
 				--remaining;
+			} else if (w != foreground &&
+			           std::find(ordering_apps.begin(), ordering_apps.end(),
+			                     w) == ordering_apps.end()) {
+				// Visible shell helpers can sit above the real popup without
+				// painting app content. Use the worker's filtered membership.
+				continue;
 			}
 			if (!IsWindowVisible(w) || IsIconic(w)) {
 				continue;
@@ -694,24 +704,29 @@ struct Renderer::Impl {
 		}
 	}
 
-	HWND topmost_app_above(const MonitorScene &scene) const noexcept
+	HWND app_above(const MonitorScene &scene,
+	               HWND anchor = nullptr) const noexcept
 	{
-		if (!scene.visible || topmost_apps.empty()) {
+		if (!scene.visible || ordering_apps.empty()) {
 			return nullptr;
 		}
-		// The worker has already filtered cloaked windows and shell UI. Check
-		// live ordering and geometry only among nearby HWNDs above our layer.
+		// An ordinary foreground window can precede a WS_EX_TOPMOST overlay
+		// even without that flag itself. Check the actual order on this
+		// monitor.
 		const Rect monitor = screen_rect(scene.display.bounds);
 		HWND blocker = nullptr;
 		HWND window = GetWindow(scene.window, GW_HWNDPREV);
 		for (unsigned n = 0; window && n < 128; ++n) {
 			RECT bounds{};
-			if (std::find(topmost_apps.begin(), topmost_apps.end(), window) !=
-			        topmost_apps.end() &&
-			    (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) &&
-			    IsWindowVisible(window) && !IsIconic(window) &&
-			    GetWindowRect(window, &bounds) &&
-			    screen_rect(bounds).intersects(monitor)) {
+			if (window == anchor) {
+				// Placing snow just below this popup clears all apps seen so
+				// far. An app higher still would make the anchor unsafe.
+				blocker = nullptr;
+			} else if (std::find(ordering_apps.begin(), ordering_apps.end(),
+			                     window) != ordering_apps.end() &&
+			           IsWindowVisible(window) && !IsIconic(window) &&
+			           GetWindowRect(window, &bounds) &&
+			           screen_rect(bounds).intersects(monitor)) {
 				blocker = window;
 			}
 			window = GetWindow(window, GW_HWNDPREV);
@@ -731,7 +746,10 @@ struct Renderer::Impl {
 			}
 			const bool topmost = (GetWindowLongPtrW(s->window, GWL_EXSTYLE) &
 			                      WS_EX_TOPMOST) != 0;
-			const HWND blocker = anchor ? nullptr : topmost_app_above(*s);
+			const HWND blocker = app_above(*s, anchor);
+			if (blocker) {
+				anchor = nullptr;
+			}
 			if (!anchor && !blocker && !s->yielded_z_order && topmost) {
 				continue;
 			}
@@ -772,15 +790,29 @@ struct Renderer::Impl {
 					insert_after = before_blocker;
 				}
 			}
-			if (SetWindowPos(s->window, insert_after, 0, 0, 0, 0,
-			                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
-			                     SWP_NOOWNERZORDER)) {
-				++z_order_changes;
-				z_order_recoveries += blocker != nullptr;
-				s->yielded_z_order = anchor != nullptr;
-			} else {
+			const auto place = [&](HWND after) {
+				if (SetWindowPos(s->window, after, 0, 0, 0, 0,
+				                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+				                     SWP_NOOWNERZORDER)) {
+					++z_order_changes;
+					return true;
+				}
 				last_z_order_error = GetLastError();
 				++z_order_failures;
+				return false;
+			};
+			// Inserting below the last topmost HWND can leave an ordinary
+			// overlay in the normal band. Restore its band before positioning
+			// it below the shell UI within that band.
+			if (!topmost && insert_after != HWND_TOPMOST &&
+			    (GetWindowLongPtrW(insert_after, GWL_EXSTYLE) &
+			     WS_EX_TOPMOST) &&
+			    !place(HWND_TOPMOST)) {
+				continue;
+			}
+			if (place(insert_after)) {
+				z_order_recoveries += blocker != nullptr;
+				s->yielded_z_order = anchor != nullptr;
 			}
 		}
 	}
@@ -1178,7 +1210,7 @@ void Renderer::synchronize_desktop(const DesktopSnapshot &snapshot,
 	impl_->follow_desktop(snapshot.desktop);
 	impl_->popup_windows = snapshot.popups;
 	impl_->taskbar_windows = snapshot.taskbars;
-	impl_->topmost_apps = snapshot.topmost_apps;
+	impl_->ordering_apps = snapshot.ordering_apps;
 	impl_->order_below_popups(impl_->popup_windows);
 	impl_->emit_pending();
 	impl_->geometry_dirty = true;
@@ -1434,9 +1466,8 @@ std::string Renderer::description() const
 			<< 'x' << b.bottom - b.top << " / DPI " << s->display.scale
 			<< " / visible " << s->visible << " / simulation " << s->active
 			<< " / HWND visible " << (IsWindowVisible(s->window) != FALSE)
-			<< " / topmost app above "
-			<< (impl_->topmost_app_above(*s) != nullptr) << " / NonRude "
-			<< (GetPropW(s->window, L"NonRudeHWND") != nullptr)
+			<< " / app above " << (impl_->app_above(*s) != nullptr)
+			<< " / NonRude " << (GetPropW(s->window, L"NonRudeHWND") != nullptr)
 			<< " / disabled " << !IsWindowEnabled(s->window) << " / topmost "
 			<< ((GetWindowLongPtrW(s->window, GWL_EXSTYLE) & WS_EX_TOPMOST) !=
 		        0)

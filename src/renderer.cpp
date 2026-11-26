@@ -664,30 +664,22 @@ struct Renderer::Impl {
 			}
 			// Validate the role again: a stale HWND may have been reused by an
 			// app.
-			const WindowTraits traits{class_name,
-			                          (style & WS_POPUP) != 0,
-			                          (style & WS_CAPTION) == WS_CAPTION,
-			                          (style & WS_THICKFRAME) != 0,
-			                          (ex & WS_EX_TOOLWINDOW) != 0,
-			                          (ex & WS_EX_NOACTIVATE) != 0,
-			                          (ex & WS_EX_APPWINDOW) != 0,
-			                          GetWindow(w, GW_OWNER) != nullptr};
-			const UINT dpi = GetDpiForWindow(w);
+			const auto traits = window_traits(w, class_name, style, ex);
 			const bool status_bubble =
-				browser_status_bubble(w, traits, screen_rect(bounds),
-			                          dpi ? static_cast<float>(dpi) / 96 : 1);
+				browser_status_bubble(w, traits, screen_rect(bounds));
 			const bool popup =
 				taskbar_anchor ||
 				(!status_bubble &&
 			     std::find(popups.begin(), popups.end(), w) != popups.end() &&
 			     is_native_popup(traits));
-			if (!popup && (ex & WS_EX_LAYERED) && (ex & WS_EX_TRANSPARENT)) {
+			if (!popup && !status_bubble && (ex & WS_EX_LAYERED) &&
+			    (ex & WS_EX_TRANSPARENT)) {
 				continue;
 			}
 			popup_stack.push_back({reinterpret_cast<std::uintptr_t>(w),
 			                       screen_rect(bounds), popup});
-			// Nothing below the first application on each monitor can be an
-			// anchor.
+			// A status bubble, like the app itself, has to stay below snow.
+			// Nothing behind either one on this monitor can be an anchor.
 			if (!popup &&
 			    std::all_of(
 					monitors.begin(), monitors.end(), [&](const auto &s) {
@@ -704,10 +696,10 @@ struct Renderer::Impl {
 		}
 	}
 
-	HWND app_above(const MonitorScene &scene,
-	               HWND anchor = nullptr) const noexcept
+	HWND covering_window_above(const MonitorScene &scene,
+	                           HWND anchor = nullptr) const noexcept
 	{
-		if (!scene.visible || ordering_apps.empty()) {
+		if (!scene.visible) {
 			return nullptr;
 		}
 		// An ordinary foreground window can precede a WS_EX_TOPMOST overlay
@@ -718,12 +710,18 @@ struct Renderer::Impl {
 		HWND window = GetWindow(scene.window, GW_HWNDPREV);
 		for (unsigned n = 0; window && n < 128; ++n) {
 			RECT bounds{};
+			const auto handle = reinterpret_cast<std::uintptr_t>(window);
 			if (window == anchor) {
 				// Placing snow just below this popup clears all apps seen so
 				// far. An app higher still would make the anchor unsafe.
 				blocker = nullptr;
-			} else if (std::find(ordering_apps.begin(), ordering_apps.end(),
-			                     window) != ordering_apps.end() &&
+			} else if ((std::find(ordering_apps.begin(), ordering_apps.end(),
+			                      window) != ordering_apps.end() ||
+			            std::any_of(popup_stack.begin(), popup_stack.end(),
+			                        [&](const auto &entry) {
+										return !entry.popup &&
+				                               entry.window == handle;
+									})) &&
 			           IsWindowVisible(window) && !IsIconic(window) &&
 			           GetWindowRect(window, &bounds) &&
 			           screen_rect(bounds).intersects(monitor)) {
@@ -734,19 +732,55 @@ struct Renderer::Impl {
 		return blocker;
 	}
 
+	HWND recovery_anchor(HWND blocker, Rect monitor) const noexcept
+	{
+		HWND anchor = HWND_TOPMOST;
+		HWND window = GetWindow(blocker, GW_HWNDPREV);
+		for (unsigned n = 0; window && n < 128; ++n) {
+			RECT bounds{};
+			if (IsWindowVisible(window) && !IsIconic(window) &&
+			    GetWindowRect(window, &bounds) &&
+			    screen_rect(bounds).intersects(monitor)) {
+				wchar_t buffer[128]{};
+				GetClassNameW(window, buffer, 128);
+				const std::wstring_view name{buffer};
+				const auto style = GetWindowLongPtrW(window, GWL_STYLE);
+				const auto ex = GetWindowLongPtrW(window, GWL_EXSTYLE);
+				const auto traits = window_traits(window, name, style, ex);
+				// Keep native UI above the blocker even if it has not reached
+				// the worker snapshot yet.
+				if (browser_status_bubble(window, traits,
+				                          screen_rect(bounds))) {
+					anchor = HWND_TOPMOST;
+				} else if (anchor == HWND_TOPMOST && (ex & WS_EX_TOPMOST) &&
+				           name != overlay_class &&
+				           !is_shell_focus_proxy(name) && !(style & WS_CHILD) &&
+				           (std::find(taskbar_windows.begin(),
+				                      taskbar_windows.end(),
+				                      window) != taskbar_windows.end() ||
+				            is_native_popup(traits))) {
+					anchor = window;
+				}
+			}
+			window = GetWindow(window, GW_HWNDPREV);
+		}
+		return anchor;
+	}
+
 	void order_below_popups(std::span<const HWND> popups)
 	{
 		popup_count = popups.size();
 		read_popup_stack(popups, taskbar_windows);
 		for (auto &s : monitors) {
-			HWND anchor = reinterpret_cast<HWND>(
-				popup_anchor(popup_stack, screen_rect(s->display.bounds)));
+			const Rect monitor = screen_rect(s->display.bounds);
+			HWND anchor =
+				reinterpret_cast<HWND>(popup_anchor(popup_stack, monitor));
 			if (anchor && (!IsWindowVisible(anchor) || IsIconic(anchor))) {
 				anchor = nullptr;
 			}
 			const bool topmost = (GetWindowLongPtrW(s->window, GWL_EXSTYLE) &
 			                      WS_EX_TOPMOST) != 0;
-			const HWND blocker = app_above(*s, anchor);
+			const HWND blocker = covering_window_above(*s, anchor);
 			if (blocker) {
 				anchor = nullptr;
 			}
@@ -776,20 +810,9 @@ struct Renderer::Impl {
 			// Stay below shell taskbars and native menus/tooltips, but never
 			// follow a popup underneath an application with the entire
 			// monitor-sized snow layer.
-			HWND insert_after = anchor ? anchor : HWND_TOPMOST;
-			if (blocker) {
-				// Keep any shell UI already above the app ahead of the snow,
-				// even if it has not arrived in the worker snapshot yet.
-				const HWND before_blocker = GetWindow(blocker, GW_HWNDPREV);
-				if (before_blocker == s->window) {
-					continue; // The window moved during the lookup.
-				}
-				if (before_blocker &&
-				    (GetWindowLongPtrW(before_blocker, GWL_EXSTYLE) &
-				     WS_EX_TOPMOST)) {
-					insert_after = before_blocker;
-				}
-			}
+			const HWND insert_after = blocker
+			                              ? recovery_anchor(blocker, monitor)
+			                              : (anchor ? anchor : HWND_TOPMOST);
 			const auto place = [&](HWND after) {
 				if (SetWindowPos(s->window, after, 0, 0, 0, 0,
 				                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
@@ -801,18 +824,32 @@ struct Renderer::Impl {
 				++z_order_failures;
 				return false;
 			};
-			// Inserting below the last topmost HWND can leave an ordinary
-			// overlay in the normal band. Restore its band before positioning
-			// it below the shell UI within that band.
-			if (!topmost && insert_after != HWND_TOPMOST &&
-			    (GetWindowLongPtrW(insert_after, GWL_EXSTYLE) &
-			     WS_EX_TOPMOST) &&
-			    !place(HWND_TOPMOST)) {
+			const auto place_below = [&](HWND after) {
+				// Restore the topmost band before inserting under its last
+				// HWND. Inserting there alone can leave snow non-topmost.
+				if (after != HWND_TOPMOST &&
+				    (GetWindowLongPtrW(after, GWL_EXSTYLE) & WS_EX_TOPMOST) &&
+				    !(GetWindowLongPtrW(s->window, GWL_EXSTYLE) &
+				      WS_EX_TOPMOST) &&
+				    !place(HWND_TOPMOST)) {
+					return false;
+				}
+				return place(after);
+			};
+			if (!place_below(insert_after)) {
 				continue;
 			}
-			if (place(insert_after)) {
-				z_order_recoveries += blocker != nullptr;
-				s->yielded_z_order = anchor != nullptr;
+			s->yielded_z_order = anchor != nullptr;
+			z_order_recoveries += blocker != nullptr;
+			if (const HWND covering = covering_window_above(*s)) {
+				HWND retry = recovery_anchor(covering, monitor);
+				if (retry == insert_after) {
+					retry = HWND_TOPMOST;
+				}
+				if (retry != insert_after && place_below(retry)) {
+					s->yielded_z_order = false;
+					z_order_recoveries += blocker == nullptr;
+				}
 			}
 		}
 	}
@@ -1466,7 +1503,7 @@ std::string Renderer::description() const
 			<< 'x' << b.bottom - b.top << " / DPI " << s->display.scale
 			<< " / visible " << s->visible << " / simulation " << s->active
 			<< " / HWND visible " << (IsWindowVisible(s->window) != FALSE)
-			<< " / app above " << (impl_->app_above(*s) != nullptr)
+			<< " / app above " << (impl_->covering_window_above(*s) != nullptr)
 			<< " / NonRude " << (GetPropW(s->window, L"NonRudeHWND") != nullptr)
 			<< " / disabled " << !IsWindowEnabled(s->window) << " / topmost "
 			<< ((GetWindowLongPtrW(s->window, GWL_EXSTYLE) & WS_EX_TOPMOST) !=

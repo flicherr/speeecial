@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <windows.h>
 
 namespace snow
@@ -29,8 +30,10 @@ std::vector<WindowOrder> popup_window_order(std::span<const HWND> candidates);
 bool on_battery() noexcept;
 
 struct WindowTraits;
-bool browser_status_bubble(HWND window, const WindowTraits &traits, Rect bounds,
-                           float scale) noexcept;
+WindowTraits window_traits(HWND window, std::wstring_view name, LONG_PTR style,
+                           LONG_PTR ex) noexcept;
+bool browser_status_bubble(HWND window, const WindowTraits &traits,
+                           Rect bounds) noexcept;
 std::optional<Rect> foreground_fullscreen_fast(HWND window) noexcept;
 
 struct MotionSample {
@@ -45,8 +48,7 @@ struct MotionSample {
 struct DesktopSnapshot {
 	std::vector<SurfaceSnapshot> surfaces;
 	std::vector<Blocker> blockers;
-	std::vector<HWND> popups; // Eligible native UI; renderer revalidates live Z
-	                          // order above applications.
+	std::vector<HWND> popups; // Native UI; renderer checks live role and order.
 	std::vector<HWND> taskbars; // Shell bands are ordering anchors even before
 	                            // a tooltip appears.
 	std::vector<HWND> ordering_apps;

@@ -357,12 +357,35 @@ void snowflake_size_and_accumulation()
 
 void browser_status_layer_policy()
 {
-	WindowTraits chrome{L"Chrome_WidgetWin_1", true, false, false, true, true, false, true};
+	WindowTraits chrome{L"Chrome_WidgetWin_1",
+	                    true,
+	                    false,
+	                    false,
+	                    true,
+	                    true,
+	                    false,
+	                    true,
+	                    true};
 	const Rect owner{100, 100, 1100, 800};
 	require(is_browser_status_bubble(chrome, {100, 775, 700, 800}, owner, 1),
 	        "Bottom-left Chrome URL text must stay below snow");
-	require(!is_browser_status_bubble(chrome, {500, 775, 700, 800}, owner, 1),
-	        "Do not classify every Chromium tooltip as URL text");
+	require(is_browser_status_bubble(chrome, {650, 775, 1101, 800}, owner, 1),
+	        "Chrome URL text on the right must stay below snow");
+	require(
+		is_browser_status_bubble(chrome, {100, 795, 700, 820}, owner, 1),
+		"Chrome URL text shifted away from the cursor must stay below snow");
+	auto dialog = chrome;
+	dialog.input_transparent = false;
+	require(!is_browser_status_bubble(dialog, {650, 775, 1101, 800}, owner, 1),
+	        "An interactive popup in the same location keeps its priority");
+	const Rect maximized{-8, -8, 1928, 1040};
+	const Rect inset{55, 1010, 355, 1033};
+	require(is_browser_status_bubble(chrome, inset, maximized, 1),
+	        "A tab strip beside the web contents can inset the URL bubble");
+	auto tooltip = chrome;
+	tooltip.tool = false;
+	require(!is_browser_status_bubble(tooltip, inset, maximized, 1),
+	        "A Chromium tooltip beside the status bubble keeps its priority");
 	require(!is_browser_status_bubble(chrome, {100, 200, 700, 225}, owner, 1),
 	        "Chrome menus near the top remain native foreground UI");
 	require(!is_browser_status_bubble(chrome, {100, 500, 700, 800}, owner, 1),

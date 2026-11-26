@@ -163,17 +163,32 @@ std::vector<Display> enumerate_displays()
 	return std::move(state.displays);
 }
 
-bool browser_status_bubble(HWND window, const WindowTraits &traits, Rect bounds,
-                           float scale) noexcept
+WindowTraits window_traits(HWND window, std::wstring_view name, LONG_PTR style,
+                           LONG_PTR ex) noexcept
+{
+	return {name,
+	        (style & WS_POPUP) != 0,
+	        (style & WS_CAPTION) == WS_CAPTION,
+	        (style & WS_THICKFRAME) != 0,
+	        (ex & WS_EX_TOOLWINDOW) != 0,
+	        (ex & WS_EX_NOACTIVATE) != 0,
+	        (ex & WS_EX_APPWINDOW) != 0,
+	        GetWindow(window, GW_OWNER) != nullptr,
+	        (ex & WS_EX_TRANSPARENT) != 0};
+}
+
+bool browser_status_bubble(HWND window, const WindowTraits &traits,
+                           Rect bounds) noexcept
 {
 	if (!traits.class_name.starts_with(L"Chrome_WidgetWin_")) {
 		return false;
 	}
 	RECT owner_bounds{};
 	const HWND owner = GetAncestor(window, GA_ROOTOWNER);
+	const UINT dpi = GetDpiForWindow(window);
 	return owner && owner != window && GetWindowRect(owner, &owner_bounds) &&
 	       is_browser_status_bubble(traits, bounds, screen_rect(owner_bounds),
-	                                scale);
+	                                dpi ? static_cast<float>(dpi) / 96 : 1);
 }
 
 class DesktopScanner {
@@ -228,19 +243,6 @@ bool taskbar(const wchar_t *name)
 {
 	return std::wcscmp(name, L"Shell_TrayWnd") == 0 ||
 	       std::wcscmp(name, L"Shell_SecondaryTrayWnd") == 0;
-}
-
-WindowTraits window_traits(HWND window, const wchar_t *name, LONG_PTR style,
-                           LONG_PTR ex)
-{
-	return {name,
-	        (style & WS_POPUP) != 0,
-	        (style & WS_CAPTION) == WS_CAPTION,
-	        (style & WS_THICKFRAME) != 0,
-	        (ex & WS_EX_TOOLWINDOW) != 0,
-	        (ex & WS_EX_NOACTIVATE) != 0,
-	        (ex & WS_EX_APPWINDOW) != 0,
-	        GetWindow(window, GW_OWNER) != nullptr};
 }
 
 bool native_popup(HWND window, const wchar_t *name, LONG_PTR style, LONG_PTR ex)
@@ -806,12 +808,7 @@ DesktopSnapshot DesktopScanner::snapshot(bool force)
 		}
 		const auto traits = window_traits(window, name, style, ex);
 		const bool popup = !is_taskbar && is_native_popup(traits);
-		const bool status_bubble =
-			visible && popup &&
-			browser_status_bubble(window, traits, body, scale);
-		// The user wants Chrome URL text beneath the snow. It remains native UI
-		// for collision/masking, but must not pull our layer below the browser.
-		if (visible && popup && !status_bubble && result.popups.size() < 128) {
+		if (visible && popup && result.popups.size() < 128) {
 			result.popups.push_back(window);
 		}
 		if (is_taskbar && bar_visible && good && result.taskbars.size() < 32) {

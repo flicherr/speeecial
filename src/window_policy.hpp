@@ -11,6 +11,7 @@ struct WindowTraits {
 	std::wstring_view class_name;
 	bool popup = false, full_caption = false, resizable = false;
 	bool tool = false, no_activate = false, app_window = false, owned = false;
+	bool input_transparent = false;
 };
 
 inline bool is_shell_focus_proxy(std::wstring_view name) noexcept
@@ -44,15 +45,18 @@ inline bool is_browser_status_bubble(const WindowTraits &w, Rect bubble,
                                      Rect owner, float scale) noexcept
 {
 	if (!w.class_name.starts_with(L"Chrome_WidgetWin_") ||
-	    !is_native_popup(w) || w.full_caption || w.resizable ||
-	    !bubble.valid() || !owner.valid() || !std::isfinite(scale) ||
-	    scale <= 0) {
+	    !is_native_popup(w) || !w.owned || !w.tool || !w.no_activate ||
+	    !w.input_transparent || !bubble.valid() || !owner.valid() ||
+	    !std::isfinite(scale) || scale <= 0) {
 		return false;
 	}
 	const float edge = std::max(2.0f, 12 * scale);
+	// The bubble follows the web contents, which can be inset by side
+	// panels. It can also slide down by its height to avoid the cursor.
 	return bubble.height() <= 48 * scale &&
-	       std::abs(bubble.left - owner.left) <= edge &&
-	       std::abs(bubble.bottom - owner.bottom) <= edge &&
+	       bubble.bottom >= owner.bottom - edge &&
+	       bubble.bottom <= owner.bottom + bubble.height() + edge &&
+	       bubble.left >= owner.left - edge &&
 	       bubble.right <= owner.right + edge;
 }
 

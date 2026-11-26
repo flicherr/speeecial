@@ -200,7 +200,7 @@ void popup_switching(Renderer &renderer)
 	ShowWindow(stale, SW_SHOWNOACTIVATE);
 	check_win(SetWindowPos(stale, app, 0, 0, 0, 0, flags), "Place stale popup below focused app");
 
-	const auto verify = [&](HWND tip) {
+	const auto verify = [&](HWND tip, HWND bubble = nullptr) {
 		bool checked = false;
 		for (HWND w = FindWindowExW(nullptr, nullptr, L"speeecial.Overlay.1.0", nullptr); w;
 		     w = FindWindowExW(nullptr, w, L"speeecial.Overlay.1.0", nullptr)) {
@@ -218,6 +218,10 @@ void popup_switching(Renderer &renderer)
 			}
 			if (tip && !above(tip, w)) {
 				throw std::runtime_error("Current tooltip did not stay above snow");
+			}
+			if (bubble && !above(w, bubble)) {
+				throw std::runtime_error(
+					"Browser status bubble got above snow");
 			}
 			if (!tip && !(GetWindowLongPtrW(w, GWL_EXSTYLE) & WS_EX_TOPMOST)) {
 				throw std::runtime_error("Background/stale popup prevented restoring the topmost band");
@@ -272,13 +276,58 @@ void popup_switching(Renderer &renderer)
 		SetWindowPos(tip, HWND_TOPMOST, 0, 0, 0, 0, flags | SWP_SHOWWINDOW),
 		"Keep a native popup above the maximized app");
 	DesktopSnapshot covered;
-	covered.topmost_apps = {app};
+	covered.ordering_apps = {app};
 	// The native popup has not arrived in the snapshot. Raising the snow
 	// just above the app should still preserve the popup's order.
 	for (unsigned repeat = 0; repeat < 3; ++repeat) {
 		renderer.synchronize_desktop(covered);
 		verify(tip);
 	}
+
+	WNDCLASSW chrome{};
+	chrome.lpfnWndProc = DefWindowProcW;
+	chrome.hInstance = GetModuleHandleW(nullptr);
+	chrome.lpszClassName = L"Chrome_WidgetWin_SnowTest";
+	if (!RegisterClassW(&chrome) &&
+	    GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+		check_win(FALSE, "Register browser popup class");
+	}
+	RECT app_bounds{};
+	check_win(GetWindowRect(app, &app_bounds),
+	          "Get browser popup owner bounds");
+	const HWND bubble = CreateWindowExW(
+		WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
+		chrome.lpszClassName, L"", WS_POPUP, app_bounds.left + 63,
+		app_bounds.bottom - 25, 200, 25, app, nullptr, chrome.hInstance,
+		nullptr);
+	check_win(bubble != nullptr, "Create inset browser status bubble");
+	windows.handles.push_back(bubble);
+	const auto bubble_style = GetWindowLongPtrW(bubble, GWL_EXSTYLE);
+
+	for (bool published : {false, true}) {
+		check_win(SetWindowPos(app, HWND_TOPMOST, 0, 0, 0, 0, flags),
+		          "Raise browser above snow");
+		check_win(
+			SetWindowPos(stale, HWND_TOPMOST, 0, 0, 0, 0,
+		                 flags | SWP_SHOWWINDOW),
+			"Show native popup between the browser and its status bubble");
+		check_win(SetWindowPos(bubble, HWND_TOPMOST, 0, 0, 0, 0,
+		                       flags | SWP_SHOWWINDOW),
+		          "Show status bubble just above its owner");
+		check_win(SetWindowPos(tip, HWND_TOPMOST, 0, 0, 0, 0, flags),
+		          "Keep native tooltip above the browser status bubble");
+		if (published) {
+			covered.popups = {bubble, stale, tip};
+		}
+		renderer.synchronize_desktop(covered);
+		verify(tip, bubble);
+	}
+	if (GetWindowLongPtrW(bubble, GWL_EXSTYLE) != bubble_style) {
+		throw std::runtime_error("Recovery changed the status bubble style");
+	}
+	ShowWindow(bubble, SW_HIDE);
+	ShowWindow(stale, SW_HIDE);
+	covered.popups.clear();
 	ShowWindow(tip, SW_HIDE);
 	check_win(SetWindowPos(app, HWND_TOPMOST, 0, 0, 0, 0, flags),
 	          "Raise maximized app again after popup dismissal");
@@ -286,6 +335,55 @@ void popup_switching(Renderer &renderer)
 	verify(nullptr);
 	if (GetWindowLongPtrW(app, GWL_EXSTYLE) != app_style) {
 		throw std::runtime_error("Recovery changed the maximized app's style");
+	}
+
+	// Model the observed desktop order directly. The covering app has no
+	// TOPMOST flag, and drops its frame and APPWINDOW flag in fullscreen.
+	check_win(SetWindowPos(app, HWND_NOTOPMOST, 0, 0, 0, 0, flags),
+	          "Return test application to its ordinary band");
+	for (bool fullscreen : {false, true}) {
+		if (fullscreen) {
+			MONITORINFO info{sizeof(info)};
+			check_win(
+				GetMonitorInfoW(
+					MonitorFromWindow(app, MONITOR_DEFAULTTONEAREST), &info),
+				"Get fullscreen regression monitor");
+			SetWindowLongPtrW(app, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+			SetWindowLongPtrW(app, GWL_EXSTYLE, 0);
+			const auto &r = info.rcMonitor;
+			check_win(
+				SetWindowPos(app, nullptr, r.left, r.top, r.right - r.left,
+			                 r.bottom - r.top,
+			                 SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED),
+				"Enter borderless fullscreen");
+		}
+		const auto style = GetWindowLongPtrW(app, GWL_EXSTYLE);
+		for (HWND w = FindWindowExW(nullptr, nullptr, L"speeecial.Overlay.1.0",
+		                            nullptr);
+		     w;
+		     w = FindWindowExW(nullptr, w, L"speeecial.Overlay.1.0", nullptr)) {
+			DWORD pid = 0;
+			GetWindowThreadProcessId(w, &pid);
+			if (pid == GetCurrentProcessId() &&
+			    MonitorFromWindow(w, MONITOR_DEFAULTTONULL) ==
+			        MonitorFromWindow(app, MONITOR_DEFAULTTONULL)) {
+				check_win(SetWindowPos(w, app, 0, 0, 0, 0, flags),
+				          "Place snow behind ordinary app");
+				break;
+			}
+		}
+		if (renderer.description().find(" / app above 1") ==
+		    std::string::npos) {
+			throw std::runtime_error(
+				"Ordinary window above snow went undetected");
+		}
+		renderer.synchronize_desktop(covered);
+		verify(nullptr);
+		if (GetWindowLongPtrW(app, GWL_EXSTYLE) != style ||
+		    (style & WS_EX_TOPMOST)) {
+			throw std::runtime_error(
+				"Recovery altered the ordinary app's band");
+		}
 	}
 }
 

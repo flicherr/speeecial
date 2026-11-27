@@ -802,25 +802,28 @@ void hidden_desktop_preserves_snow()
 
 void hide_before_close_and_shell_restart()
 {
-	for (float delay : {0.1f, 0.8f}) {
-		Landscape world;
-		auto w = window();
-		const Blocker partial{{40, 0, 160, 150}, 0};
-		const Blocker behind{{40, 0, 280, 150}, 6};
-		sync(world, {w}, {}, {partial, behind});
-		seed(world, 1);
-		w.state = SurfaceState::hidden;
-		sync(world, {w}, {}, {partial, behind}, 0.6f);
-		w.z_order = 100;
-		sync(world, {w}, {}, {partial, behind}, delay / 2);
-		w.state = SurfaceState::closed;
-		sync(world, {w}, {}, {}, delay / 2);
-		require(world.emissions().empty() == (delay > 0.5f), "Only a recent hide can precede a visible collapse");
-		for (const auto &e : world.emissions()) {
-			require(e.x >= 160, "Collapse must use the last visible mask");
-		}
-	}
 	Landscape world;
+	auto w = window();
+	const Blocker partial{{40, 0, 160, 150}, 0};
+	const Blocker behind{{40, 0, 280, 150}, 6};
+	sync(world, {w}, {}, {partial, behind});
+	seed(world, 1);
+	w.state = SurfaceState::hidden;
+	w.z_order = 100;
+	sync(world, {w}, {}, {partial, behind}, 0.6f);
+	require(!world.emissions().empty(), "Hiding to the tray must release snow");
+	for (const auto &e : world.emissions()) {
+		require(e.x >= 160, "Collapse must use the last visible window order");
+	}
+	world.consume_emissions();
+	sync(world, {w}, {}, {partial, behind});
+	require(world.emissions().empty(),
+	        "A window staying hidden cannot emit twice");
+	w.state = SurfaceState::closed;
+	sync(world, {w});
+	require(world.emissions().empty(),
+	        "Closing a hidden window cannot emit twice");
+
 	auto bar = floor_surface();
 	sync(world, {bar});
 	seed(world, bar.id);

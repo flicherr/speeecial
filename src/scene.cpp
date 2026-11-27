@@ -120,10 +120,6 @@ bool Landscape::begin_foreground_transition(std::optional<Rect> fullscreen)
 
 void Landscape::update_mask(SnowSurface &surface)
 {
-	if (surface.snapshot.kind == SurfaceKind::window && surface.hidden_since) {
-		// Keep the last visible mask while awaiting a possible close.
-		return;
-	}
 	if (!surface.support_visible || surface.foreground_pending) {
 		surface.visible_regions.clear();
 		surface.mask_signature = ~std::uint64_t{0};
@@ -220,7 +216,6 @@ void Landscape::emit_snow(const SnowSurface &surface, float fraction, float vx,
 			emissions_.reserve(max_debris);
 		}
 		const auto &s = surface.snapshot;
-		const auto strip = surface.snow_bounds();
 		const auto count = std::clamp(
 			static_cast<int>((right - left) / (18 * s.scale)), 6, 120);
 		auto random = [&](float lo, float hi) {
@@ -236,17 +231,8 @@ void Landscape::emit_snow(const SnowSurface &surface, float fraction, float vx,
 			}
 			const float gx = s.rect.left + x,
 						gy = s.rect.top - h * random(0.25f, 0.9f);
-			const float local_y = gy - strip.top;
-			const bool covered =
-				surface.hidden_since
-					? std::ranges::none_of(surface.visible_regions,
-			                               [=](Rect region) {
-											   return region.contains(x,
-				                                                      local_y);
-										   })
-					: occluded({gx - 0.5f, gy - 0.5f, gx + 0.5f, gy + 0.5f},
-			                   s.z_order);
-			if (covered) {
+			if (occluded({gx - 0.5f, gy - 0.5f, gx + 0.5f, gy + 0.5f},
+			             s.z_order)) {
 				continue;
 			}
 			emissions_.push_back(
@@ -270,16 +256,10 @@ void Landscape::synchronize(std::span<const SurfaceSnapshot> snapshots,
 		clock_ += std::min(elapsed, 3600.0f);
 	}
 	const auto can_detach = [&](const SnowSurface &surface) {
-		// Some applications hide their HWND shortly before destroying it.
-		// Retain that brief transition, but never shed snow from another
-		// virtual desktop.
-		const bool recent_hide =
-			surface.snapshot.state == SurfaceState::hidden &&
-			surface.hidden_since && clock_ - *surface.hidden_since <= 0.5f;
 		return animate && settings.windows && settings.collapse &&
 		       surface.snapshot.accepts_snow &&
 		       surface.snapshot.kind == SurfaceKind::window &&
-		       (surface.snapshot.state == SurfaceState::visible || recent_hide);
+		       surface.snapshot.state == SurfaceState::visible;
 	};
 	// Use the old geometry/masks for detachments. Minimized HWNDs may already
 	// report (-32000,-32000), and destroyed HWNDs cannot be queried at all.
@@ -315,8 +295,11 @@ void Landscape::synchronize(std::span<const SurfaceSnapshot> snapshots,
 				if (!old.snow.empty()) {
 					old.snow.clear();
 				}
-			} else if (old.snapshot.state != SurfaceState::minimized &&
-			           s.state == SurfaceState::minimized) {
+			} else if ((old.snapshot.state != SurfaceState::minimized &&
+			            s.state == SurfaceState::minimized) ||
+			           (was_visible && s.state == SurfaceState::hidden &&
+			            s.kind == SurfaceKind::window)) {
+				// Apps can hide their window to the tray and keep the HWND.
 				release(old, 1, 0, 25 * s.scale, can_detach(old));
 			} else if (animate && old.enabled(settings) && was_visible &&
 			           s.state == SurfaceState::visible &&
@@ -350,12 +333,6 @@ void Landscape::synchronize(std::span<const SurfaceSnapshot> snapshots,
 			}
 			old.snow.resize(s.rect.width(), s.scale,
 			                static_cast<float>(settings.height), true, offset);
-			if (s.state != old.snapshot.state) {
-				old.hidden_since =
-					was_visible && s.state == SurfaceState::hidden
-						? std::optional{clock_}
-						: std::nullopt;
-			}
 			old.snapshot = s;
 		}
 		it->second.seen = revision_;

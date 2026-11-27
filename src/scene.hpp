@@ -41,7 +41,6 @@ struct SnowSurface {
 	std::vector<Rect>
 		visible_regions; // Local to snow_bounds(); compositor clips.
 	float last_shed = -10;
-	std::optional<float> hidden_since;
 	bool support_visible =
 		true; // A taskbar HWND may exist underneath a fullscreen app.
 	bool foreground_pending =
